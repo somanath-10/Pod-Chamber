@@ -1,13 +1,17 @@
-import './App.css'
+import { BrowserRouter, Route, Routes } from "react-router-dom"
+import { Sender } from "./components/Sender"
+import { Receiver } from "./components/receiver"
+
 
 function App() {
 
   return (
-    <div className="flex items-center justify-center min-vh-100 bg-gray-100 dark:bg-gray-900">
-      <h1 className="text-4xl font-bold text-blue-600 dark:text-blue-400 underline">
-        Tailwind CSS is working!
-      </h1>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/sender" element={<Sender/>}/>
+        <Route path="/receiver" element={<Receiver/>}/>
+      </Routes>
+    </BrowserRouter>
   )
 }
 
