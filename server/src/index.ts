@@ -9,6 +9,10 @@ const wss = new WebSocketServer({ port: 8080 });
 interface Room {
     sender: WebSocket | null;
     receiver: WebSocket | null;
+    bufferedOffer?: any;
+    bufferedAnswer?: any;
+    bufferedSenderCandidates: any[];
+    bufferedReceiverCandidates: any[];
 }
 
 const rooms: Record<string, Room> = {};
@@ -28,42 +32,82 @@ wss.on('connection', function connection(ws) {
 
         if (payload.type === "identify-sender") {
             if (!rooms[roomId]) {
-                rooms[roomId] = { sender: ws, receiver: null };
+                rooms[roomId] = { sender: ws, receiver: null, bufferedSenderCandidates: [], bufferedReceiverCandidates: [] };
             } else {
                 rooms[roomId].sender = ws;
             }
             console.log(`Sender identified for room: ${roomId}`);
+
+            // Send buffered messages to sender
+            const room = rooms[roomId];
+            if (room.bufferedAnswer) {
+                ws.send(JSON.stringify({ type: "create-answer", sdp: room.bufferedAnswer }));
+                room.bufferedAnswer = null;
+            }
+            room.bufferedReceiverCandidates.forEach(candidate => {
+                ws.send(JSON.stringify({ type: "ice-candidate", candidate }));
+            });
+            room.bufferedReceiverCandidates = [];
         } 
         else if (payload.type === "identify-receiver") {
             if (!rooms[roomId]) {
-                rooms[roomId] = { sender: null, receiver: ws };
+                rooms[roomId] = { sender: null, receiver: ws, bufferedSenderCandidates: [], bufferedReceiverCandidates: [] };
             } else {
                 rooms[roomId].receiver = ws;
             }
             console.log(`Receiver identified for room: ${roomId}`);
+
+            // Send buffered messages to receiver
+            const room = rooms[roomId];
+            if (room.bufferedOffer) {
+                ws.send(JSON.stringify({ type: "create-offer", sdp: room.bufferedOffer }));
+                room.bufferedOffer = null;
+            }
+            room.bufferedSenderCandidates.forEach(candidate => {
+                ws.send(JSON.stringify({ type: "ice-candidate", candidate }));
+            });
+            room.bufferedSenderCandidates = [];
         } 
         else if (payload.type === "create-offer") {
             const room = rooms[roomId];
-            if (room?.receiver) {
-                room.receiver.send(JSON.stringify({ type: "create-offer", sdp: payload.sdp }));
-                console.log(`Offer routed in room: ${roomId}`);
+            if (room) {
+                if (room.receiver) {
+                    room.receiver.send(JSON.stringify({ type: "create-offer", sdp: payload.sdp }));
+                    console.log(`Offer routed in room: ${roomId}`);
+                } else {
+                    room.bufferedOffer = payload.sdp;
+                    console.log(`Offer buffered for room: ${roomId}`);
+                }
             }
         } 
         else if (payload.type === "create-answer") {
             const room = rooms[roomId];
-            if (room?.sender) {
-                room.sender.send(JSON.stringify({ type: "create-answer", sdp: payload.sdp }));
-                console.log(`Answer routed in room: ${roomId}`);
+            if (room) {
+                if (room.sender) {
+                    room.sender.send(JSON.stringify({ type: "create-answer", sdp: payload.sdp }));
+                    console.log(`Answer routed in room: ${roomId}`);
+                } else {
+                    room.bufferedAnswer = payload.sdp;
+                    console.log(`Answer buffered for room: ${roomId}`);
+                }
             }
         } 
         else if (payload.type === "ice-candidate") {
             const room = rooms[roomId];
             if (!room) return;
 
-            if (ws === room.sender && room.receiver) {
-                room.receiver.send(JSON.stringify({ type: "ice-candidate", candidate: payload.candidate }));
-            } else if (ws === room.receiver && room.sender) {
-                room.sender.send(JSON.stringify({ type: "ice-candidate", candidate: payload.candidate }));
+            if (ws === room.sender) {
+                if (room.receiver) {
+                    room.receiver.send(JSON.stringify({ type: "ice-candidate", candidate: payload.candidate }));
+                } else {
+                    room.bufferedSenderCandidates.push(payload.candidate);
+                }
+            } else if (ws === room.receiver) {
+                if (room.sender) {
+                    room.sender.send(JSON.stringify({ type: "ice-candidate", candidate: payload.candidate }));
+                } else {
+                    room.bufferedReceiverCandidates.push(payload.candidate);
+                }
             }
         }
     });
