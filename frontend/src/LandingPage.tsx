@@ -3,110 +3,82 @@ import { useNavigate } from "react-router-dom";
 
 export const LandingPage = () => {
     const [roomId, setRoomId] = useState<string>("");
+    const [userName, setUserName] = useState<string>("");
     const navigate = useNavigate();
     
-    const handleCreateRoom = () => {
+    const handleJoinPodCell = () => {
         if (!roomId) return;
-        navigate(`/sender/${roomId}`);
-    };
-
-    const handleJoinRoom = () => {
-        if (!roomId) return;
+        // Navigation logic for joining (assuming room ID determines role or just joins session)
         navigate(`/receiver/${roomId}`);
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-6 bg-bg-dark">
-            {/* Animated Background Elements */}
-            <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px] animate-pulse-slow" />
-                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-secondary/10 rounded-full blur-[120px] animate-pulse-slow" />
-            </div>
+        <div className="min-h-screen flex flex-col">
+            {/* Header */}
+            <header className="px-8 py-4 flex justify-between items-center bg-black/20 backdrop-blur-md sticky top-0 z-50 border-b border-white/5">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-amber-600 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
+                        <svg className="w-6 h-6 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                        </svg>
+                    </div>
+                    <span className="text-xl font-bold tracking-tighter text-amber-500">PodChamber</span>
+                </div>
+                <button className="btn py-2 px-4 text-xs">Get Recordings</button>
+            </header>
 
-            <main className="relative z-10 w-full max-w-4xl flex flex-col items-center gap-16">
-                {/* Hero Header */}
-                <header className="text-center space-y-6 animate-float">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-card border-white/10 text-primary text-xs font-semibold tracking-widest uppercase">
-                        <span className="flex h-2 w-2 relative">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-                        </span>
-                        Enterprise Grade P2P
+            <main className="flex-1 container flex flex-col items-center justify-center py-20 animate-fade-in">
+                {/* Hero Section */}
+                <div className="max-w-3xl text-center mb-16">
+                    <h2 className="text-2xl md:text-3xl font-medium text-slate-300 leading-tight mb-8">
+                        Record high quality podcasts without worrying about internet issues, with our unique local video recording architecture.
+                    </h2>
+                    <button className="btn-outline btn py-2 px-8 rounded-full border-amber-600 text-amber-500 hover:bg-amber-600 hover:text-black transition-all">
+                        Know More
+                    </button>
+                </div>
+
+                {/* Join Section */}
+                <div className="w-full max-w-sm">
+                    <div className="text-center mb-6">
+                        <h3 className="text-lg font-medium text-white/90">
+                            Join a pod cell and start your podcast now!
+                        </h3>
                     </div>
                     
-                    <h1 className="text-7xl md:text-9xl font-bold tracking-tight">
-                        <span className="text-white">POD</span>
-                        <span className="gradient-text">CHAMBER</span>
-                    </h1>
-                    
-                    <p className="max-w-xl mx-auto text-gray-400 text-lg md:text-xl leading-relaxed">
-                        The world's most secure and low-latency video broadcast platform. 
-                        Zero lag. Zero compromise.
+                    <div className="space-y-4">
+                        <input
+                            value={roomId}
+                            onChange={(e) => setRoomId(e.target.value)}
+                            placeholder="Enter your Room ID"
+                            className="input text-center"
+                        />
+                        <input
+                            value={userName}
+                            onChange={(e) => setUserName(e.target.value)}
+                            placeholder="Enter your User Name"
+                            className="input text-center"
+                        />
+                        
+                        <button
+                            onClick={handleJoinPodCell}
+                            disabled={!roomId}
+                            className="btn w-full py-4 text-lg mt-2"
+                        >
+                            Join Pod Cell
+                        </button>
+                    </div>
+                </div>
+
+                {/* Footer Credits */}
+                <footer className="mt-24 pb-8">
+                    <p className="text-sm font-medium text-slate-500 tracking-wider">
+                        Made by <span className="text-slate-400">Somanath Reddy S</span>
                     </p>
-                </header>
-
-                {/* Main Action Card */}
-                <div className="glass-card w-full max-w-md p-10 space-y-8 border-white/5">
-                    <div className="space-y-4 text-center">
-                        <h2 className="text-2xl font-semibold text-white">Access the Chamber</h2>
-                        <p className="text-sm text-gray-500">Enter a unique ID to broadcast or receive.</p>
-                    </div>
-
-                    <div className="space-y-6">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] ml-1">Chamber Identification</label>
-                            <input
-                                value={roomId}
-                                onChange={(e) => setRoomId(e.target.value)}
-                                placeholder="e.g. ALPHA-9"
-                                className="w-full px-6 py-4 rounded-2xl glass-input text-lg font-mono placeholder:text-gray-700"
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <button
-                                onClick={handleJoinRoom}
-                                disabled={!roomId}
-                                className="px-6 py-4 rounded-2xl bg-surface hover:bg-white/10 text-white font-bold transition-all border border-white/5 active:scale-95 disabled:opacity-30"
-                            >
-                                Join
-                            </button>
-                            <button
-                                onClick={handleCreateRoom}
-                                disabled={!roomId}
-                                className="px-6 py-4 rounded-2xl btn-primary active:scale-95 disabled:opacity-30"
-                            >
-                                Create
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="pt-4 border-t border-white/5">
-                        <div className="flex justify-between items-center text-[10px] font-bold text-gray-600 uppercase tracking-widest">
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-1 h-1 rounded-full bg-green-500" />
-                                Secured
-                            </span>
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-1 h-1 rounded-full bg-primary" />
-                                Encrypted
-                            </span>
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-1 h-1 rounded-full bg-secondary" />
-                                4K Stable
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Footer Badges */}
-                <div className="flex flex-wrap justify-center gap-8 text-[11px] font-black text-gray-600 uppercase tracking-[0.3em]">
-                    <span className="hover:text-primary transition-colors cursor-default">Open Source</span>
-                    <span className="hover:text-secondary transition-colors cursor-default">WebRTC Engine</span>
-                    <span className="hover:text-accent transition-colors cursor-default">E2EE Ready</span>
-                </div>
+                </footer>
             </main>
         </div>
     )
 }
+
 

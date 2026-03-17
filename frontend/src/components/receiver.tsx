@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 export const Receiver = () => {
     const { roomId } = useParams();
+    const navigate = useNavigate();
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const localAudioRef = useRef<HTMLAudioElement>(null);
     const remoteAudioRef = useRef<HTMLAudioElement>(null);
+    const [socket,setSocket] = useState<WebSocket|null>(null);
     
+    const pcRef = useRef<RTCPeerConnection | null>(null);
     const [status, setStatus] = useState<"idle" | "connecting" | "connected">("idle");
     
     useEffect(() => {
@@ -17,16 +20,18 @@ export const Receiver = () => {
         const socket = new WebSocket('ws://localhost:8080');
         socket.onopen = () => {
             socket.send(JSON.stringify({ type: "identify-receiver", room: roomId }))
+            setSocket(socket);
         }
 
-        let pc: RTCPeerConnection | null = null;
+        // let pc: RTCPeerConnection | null = null;
         const candidateQueue: RTCIceCandidateInit[] = [];
 
         socket.onmessage = async (event) => {
             const message = JSON.parse(event.data)
             if (message.type === 'create-offer') {
-                pc = new RTCPeerConnection();
-                
+                const pc = new RTCPeerConnection();
+                pcRef.current = pc;
+
                 pc.onicecandidate = (e: any) => {
                     if (e.candidate) {
                         socket.send(JSON.stringify({ type: "ice-candidate", room: roomId, candidate: e.candidate }))
@@ -45,7 +50,7 @@ export const Receiver = () => {
 
                 try {
                         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                        if (pc !== null) { stream.getTracks().forEach(track => pc?.addTrack(track, stream)); }
+                        stream.getTracks().forEach(track => pc.addTrack(track, stream));
                         if (localVideoRef.current !== null) {
                             localVideoRef.current.srcObject = stream;
                         }
@@ -67,82 +72,76 @@ export const Receiver = () => {
                 }
             }
             else if (message.type === "ice-candidate") {
-                if (pc && pc.remoteDescription) {
-                    await pc.addIceCandidate(message.candidate);
+                if (pcRef.current && pcRef.current.remoteDescription) {
+                    await pcRef.current.addIceCandidate(message.candidate);
                 } else {
                     candidateQueue.push(message.candidate);
                 }
+            } else if (message.type === "peer-disconnected") {
+                if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+                setStatus("connecting");
+                console.log("Sender disconnected.");
+                navigate("/");
             }
         }
         return () => socket.close();
     }, [roomId])
 
+
+    function Disconnect(){
+        socket?.send(JSON.stringify({type:"Disconnect",room:roomId}));
+        
+        // Cleanup media
+        const localStream = localVideoRef.current?.srcObject as MediaStream;
+        localStream?.getTracks().forEach(track => track.stop());
+        if (localVideoRef.current) localVideoRef.current.srcObject = null;
+        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+        
+        // Close PC
+        pcRef.current?.close();
+        pcRef.current = null;
+        
+        setStatus("idle");
+        navigate("/");
+    }
     return (
-        <div className="min-h-screen flex items-center justify-center p-4 md:p-8">
-            <div className="glass-card w-full max-w-5xl overflow-hidden flex flex-col md:flex-row">
-                {/* Left Side: Info & Status */}
-                <div className="w-full md:w-1/3 p-8 border-b md:border-b-0 md:border-r border-white/5 flex flex-col justify-center gap-6">
-                    <div>
-                        <h1 className="text-3xl font-bold gradient-text mb-2">Receiver</h1>
-                        <p className="text-gray-400 text-sm">Waiting for a secure broadcast.</p>
-                    </div>
-
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Room</label>
-                            <div className="w-full px-4 py-3 rounded-xl glass-input flex items-center bg-white/5">
-                                <span className="font-mono text-purple-300">{roomId}</span>
-                            </div>
-                        </div>
-
-                        <div className={`p-4 rounded-xl border flex items-center gap-3 transition-colors duration-500 ${
-                            status === 'connected' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
-                            status === 'connecting' ? 'bg-primary/10 border-primary/20 text-primary-hover' :
-                            'bg-white/5 border-white/10 text-gray-500'
+        <div className="container">
+            <div className="card max-w-2xl mx-auto">
+                <div className="flex justify-between items-center mb-6">
+                    <h1 className="text-2xl font-bold">Receiver</h1>
+                    <div className="flex gap-2">
+                        {status !== 'idle' && (
+                            <button onClick={Disconnect} className="btn bg-red-600 hover:bg-red-700 py-1 px-3 text-xs">
+                                Stop
+                            </button>
+                        )}
+                        <div className={`px-3 py-1 rounded text-xs font-bold ${
+                            status === 'connected' ? 'bg-green-900 text-green-300' : 
+                            status === 'connecting' ? 'bg-indigo-900 text-indigo-300' : 'bg-gray-800 text-gray-400'
                         }`}>
-                            <div className={`w-2 h-2 rounded-full ${
-                                status === 'connected' ? 'bg-green-500 animate-pulse' :
-                                status === 'connecting' ? 'bg-primary animate-pulse' :
-                                'bg-gray-600'
-                            }`} />
-                            <span className="text-sm font-medium capitalize">{status}</span>
+                            {status.toUpperCase()}
                         </div>
                     </div>
                 </div>
 
-                {/* Right Side: Video Grid */}
-                <div className="w-full md:w-2/3 p-4 md:p-8 bg-black/20 flex flex-col gap-4">
-                    <div className="grid grid-cols-1 gap-4 h-full">
-                        <div className="video-container rounded-2xl group border-primary/20">
-                            <video 
-                                ref={remoteVideoRef} 
-                                autoPlay 
-                                playsInline 
-                                className="w-full h-full object-cover"
-                            />
-                            <div className="video-label">Sender's Camera</div>
-                            {status !== 'connected' && (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/50 backdrop-blur-sm">
-                                    <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4" />
-                                    <p className="text-gray-400 text-sm">Awaiting connection...</p>
-                                </div>
-                            )}
-                        </div>
-                        
-                        <div className="video-container rounded-2xl group h-48 md:h-64 opacity-80 hover:opacity-100 transition-opacity">
-                            <video 
-                                ref={localVideoRef} 
-                                muted 
-                                autoPlay 
-                                playsInline 
-                                className="w-full h-full object-cover"
-                            />
-                            <div className="video-label">Local Preview (Receiver)</div>
-                        </div>
+                <div className="mb-4">
+                    <label className="text-xs text-gray-500 uppercase flex mb-1">Room ID</label>
+                    <div className="bg-black/30 p-2 rounded font-mono text-indigo-400 border border-white/5">
+                        {roomId}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="video-box aspect-video relative">
+                        <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                        <div className="absolute top-2 left-2 p-1 text-[10px] bg-black/50 text-white rounded">Remote</div>
+                    </div>
+                    <div className="video-box aspect-video relative">
+                        <video ref={localVideoRef} muted autoPlay playsInline className="w-full h-full object-cover" />
+                        <div className="absolute top-2 left-2 p-1 text-[10px] bg-black/50 text-white rounded">Local</div>
                     </div>
                 </div>
             </div>
-            {/* Hidden audio elements for refs */}
             <audio ref={localAudioRef} muted />
             <audio ref={remoteAudioRef} autoPlay />
         </div>

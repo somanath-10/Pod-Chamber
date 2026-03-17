@@ -57,8 +57,11 @@ wss.on('connection', function connection(ws) {
             }
             console.log(`Receiver identified for room: ${roomId}`);
 
-            // Send buffered messages to receiver
             const room = rooms[roomId];
+            // Notify sender that a receiver has joined
+            room.sender?.send(JSON.stringify({ type: "receiver-joined" }));
+
+            // Send buffered messages to receiver
             if (room.bufferedOffer) {
                 ws.send(JSON.stringify({ type: "create-offer", sdp: room.bufferedOffer }));
                 room.bufferedOffer = null;
@@ -110,21 +113,45 @@ wss.on('connection', function connection(ws) {
                 }
             }
         }
+        else if (payload.type === "Disconnect") {
+            const room = rooms[roomId];
+            if (room) {
+                if (ws === room.sender) {
+                    // Sender kills the room
+                    room.receiver?.send(JSON.stringify({ type: "peer-disconnected" }));
+                    delete rooms[roomId];
+                    console.log(`Room ${roomId} deleted as Sender disconnected.`);
+                } else if (ws === room.receiver) {
+                    room.receiver = null;
+                    room.sender?.send(JSON.stringify({ type: "peer-disconnected" }));
+                    console.log(`Receiver disconnected from room: ${roomId}. Room persists.`);
+                    
+                    // Only delete room if both are gone (unlikely here since we just set receiver to null, but good for consistency)
+                    if (!room.sender && !room.receiver) {
+                        delete rooms[roomId];
+                    }
+                }
+            }
+        }
     });
 
     ws.on('close', () => {
-        // Cleanup: remove socket from rooms when closed
         for (const roomId in rooms) {
             const room = rooms[roomId];
             if (room) {
                 if (room.sender === ws) {
-                    room.sender = null;
-                }
-                if (room.receiver === ws) {
-                    room.receiver = null;
-                }
-                if (!room.sender && !room.receiver) {
+                    // Sender socket closed, kill the room
+                    room.receiver?.send(JSON.stringify({ type: "peer-disconnected" }));
                     delete rooms[roomId];
+                    console.log(`Sender socket closed. Room ${roomId} deleted.`);
+                } else if (room.receiver === ws) {
+                    room.receiver = null;
+                    room.sender?.send(JSON.stringify({ type: "peer-disconnected" }));
+                    console.log(`Receiver socket closed for room: ${roomId}. Room persists.`);
+
+                    if (!room.sender && !room.receiver) {
+                        delete rooms[roomId];
+                    }
                 }
             }
         }
