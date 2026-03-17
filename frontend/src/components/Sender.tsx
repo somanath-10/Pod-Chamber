@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react"
+import { useParams } from "react-router-dom";
 
 export const Sender = () => {
+    const { roomId: paramRoomId } = useParams();
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
+    const[roomid,setRoom] = useState(paramRoomId || "");
     useEffect(() => {
         const socket = new WebSocket('ws://localhost:8080');
         setSocket(socket);
         socket.onopen = () => {
-            socket.send(JSON.stringify({ type: "identify-sender" }))
+            socket.send(JSON.stringify({ type: "identify-sender",room:roomid }))
         }
         return () => socket.close();
     }, [])
@@ -21,7 +24,7 @@ export const Sender = () => {
 
         pc.onicecandidate = (event) => {
             if (event.candidate) {
-                socket.send(JSON.stringify({ type: "ice-candidate", candidate: event.candidate }))
+                socket.send(JSON.stringify({ type: "ice-candidate", room: roomid, candidate: event.candidate }))
             }
         }
 
@@ -29,7 +32,7 @@ export const Sender = () => {
             try {
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
-                socket?.send(JSON.stringify({ type: 'create-offer', sdp: pc.localDescription }));
+                socket?.send(JSON.stringify({ type: 'create-offer', room: roomid, sdp: pc.localDescription }));
             } catch (e) {
                 console.error("Error during negotiation:", e);
             }
@@ -72,6 +75,14 @@ export const Sender = () => {
     return (
         <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
             <h2>Sender</h2>
+
+            <input
+                type="text"
+                name="roomid"
+                
+                onChange={(e)=>setRoom(e.target.value)}
+            />
+
             <button onClick={startSending} style={{ padding: '10px 20px', cursor: 'pointer' }}>
                 Start Connection
             </button>

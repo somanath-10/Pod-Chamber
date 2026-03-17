@@ -1,38 +1,81 @@
 import express from "express";
+import { error } from "node:console";
 import { WebSocketServer, WebSocket } from "ws";
 const app = express();
 app.use(express.json());
 const wss = new WebSocketServer({ port: 8080 });
-let senderSocket = null;
-let receiverSocket = null;
+const rooms = {};
 wss.on('connection', function connection(ws) {
     ws.on('message', function message(data) {
-        //sender
-        const message = JSON.parse(data);
-        console.log(message);
-        if (message.type === "identify-sender") {
-            senderSocket = ws;
-            console.log("in sender");
+        let payload;
+        try {
+            payload = JSON.parse(data);
         }
-        else if (message.type === "identify-receiver") {
-            receiverSocket = ws;
-            console.log("in receiver");
+        catch (e) {
+            console.error("Invalid JSON:", data);
+            return;
         }
-        else if (message.type === "create-offer") {
-            receiverSocket?.send(JSON.stringify({ type: "create-offer", sdp: message.sdp }));
-            console.log("in create-offer");
-        }
-        else if (message.type === "create-answer") {
-            console.log("in create-answer", message);
-            senderSocket?.send(JSON.stringify({ type: "create-answer", sdp: message.sdp }));
-            console.log("in create-answer");
-        }
-        else if (message.type === "ice-candidate") {
-            if (ws == senderSocket) {
-                receiverSocket?.send(JSON.stringify({ type: "ice-candidate", candidate: message.candidate }));
+        const roomId = payload.room;
+        if (!roomId)
+            return;
+        if (payload.type === "identify-sender") {
+            if (!rooms[roomId]) {
+                rooms[roomId] = { sender: ws, receiver: null };
             }
-            else if (ws == receiverSocket) {
-                senderSocket?.send(JSON.stringify({ type: "ice-candidate", candidate: message.candidate }));
+            else {
+                rooms[roomId].sender = ws;
+            }
+            console.log(`Sender identified for room: ${roomId}`);
+        }
+        else if (payload.type === "identify-receiver") {
+            if (!rooms[roomId]) {
+                rooms[roomId] = { sender: null, receiver: ws };
+            }
+            else {
+                rooms[roomId].receiver = ws;
+            }
+            console.log(`Receiver identified for room: ${roomId}`);
+        }
+        else if (payload.type === "create-offer") {
+            const room = rooms[roomId];
+            if (room?.receiver) {
+                room.receiver.send(JSON.stringify({ type: "create-offer", sdp: payload.sdp }));
+                console.log(`Offer routed in room: ${roomId}`);
+            }
+        }
+        else if (payload.type === "create-answer") {
+            const room = rooms[roomId];
+            if (room?.sender) {
+                room.sender.send(JSON.stringify({ type: "create-answer", sdp: payload.sdp }));
+                console.log(`Answer routed in room: ${roomId}`);
+            }
+        }
+        else if (payload.type === "ice-candidate") {
+            const room = rooms[roomId];
+            if (!room)
+                return;
+            if (ws === room.sender && room.receiver) {
+                room.receiver.send(JSON.stringify({ type: "ice-candidate", candidate: payload.candidate }));
+            }
+            else if (ws === room.receiver && room.sender) {
+                room.sender.send(JSON.stringify({ type: "ice-candidate", candidate: payload.candidate }));
+            }
+        }
+    });
+    ws.on('close', () => {
+        // Cleanup: remove socket from rooms when closed
+        for (const roomId in rooms) {
+            const room = rooms[roomId];
+            if (room) {
+                if (room.sender === ws) {
+                    room.sender = null;
+                }
+                if (room.receiver === ws) {
+                    room.receiver = null;
+                }
+                if (!room.sender && !room.receiver) {
+                    delete rooms[roomId];
+                }
             }
         }
     });

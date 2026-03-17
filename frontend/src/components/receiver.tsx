@@ -1,12 +1,17 @@
 import { useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
 
 export const Receiver = () => {
+    const { roomId } = useParams();
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const localVideoRef = useRef<HTMLVideoElement>(null);
+    
     useEffect(() => {
+        if (!roomId) return;
+        
         const socket = new WebSocket('ws://localhost:8080');
         socket.onopen = () => {
-            socket.send(JSON.stringify({ type: "identify-receiver" }))
+            socket.send(JSON.stringify({ type: "identify-receiver", room: roomId }))
         }
 
         let pc: RTCPeerConnection | null = null;
@@ -19,7 +24,7 @@ export const Receiver = () => {
                 
                 pc.onicecandidate = (e: any) => {
                     if (e.candidate) {
-                        socket.send(JSON.stringify({ type: "ice-candidate", candidate: e.candidate }))
+                        socket.send(JSON.stringify({ type: "ice-candidate", room: roomId, candidate: e.candidate }))
                     }
                 }
 
@@ -43,7 +48,7 @@ export const Receiver = () => {
                 await pc.setRemoteDescription(message.sdp);
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer)
-                socket.send(JSON.stringify({ type: "create-answer", sdp: pc.localDescription }));
+                socket.send(JSON.stringify({ type: "create-answer", room: roomId, sdp: pc.localDescription }));
 
                 // Process queued candidates
                 while (candidateQueue.length > 0) {
@@ -60,7 +65,7 @@ export const Receiver = () => {
             }
         }
         return () => socket.close();
-    }, [])
+    }, [roomId])
 
     return (
         <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
