@@ -12,6 +12,12 @@ export const LandingPage = () => {
         navigate(`/receiver/${roomId}`);
     };
 
+    const handleCreateRoom = () => {
+        // If a room ID is typed, use it. Otherwise generate a random 6-character ID.
+        const newRoomId = roomId || Math.random().toString(36).substring(2, 8);
+        navigate(`/sender/${newRoomId}`);
+    };
+
     return (
         <div className="min-h-screen flex flex-col">
             {/* Header */}
@@ -24,7 +30,12 @@ export const LandingPage = () => {
                     </div>
                     <span className="text-xl font-bold tracking-tighter text-amber-500">PodChamber</span>
                 </div>
-                <button className="btn py-2 px-4 text-xs">Get Recordings</button>
+                <button 
+                    onClick={() => navigate("/recordings")} 
+                    className="btn py-2 px-4 text-xs"
+                >
+                    Get Recordings
+                </button>
             </header>
 
             <main className="flex-1 container flex flex-col items-center justify-center py-20 animate-fade-in">
@@ -50,7 +61,7 @@ export const LandingPage = () => {
                         <input
                             value={roomId}
                             onChange={(e) => setRoomId(e.target.value)}
-                            placeholder="Enter your Room ID"
+                            placeholder="Enter your Room ID (Optional for Create)"
                             className="input text-center"
                         />
                         <input
@@ -60,13 +71,22 @@ export const LandingPage = () => {
                             className="input text-center"
                         />
                         
-                        <button
-                            onClick={handleJoinPodCell}
-                            disabled={!roomId}
-                            className="btn w-full py-4 text-lg mt-2"
-                        >
-                            Join Pod Cell
-                        </button>
+                        <div className="flex flex-col gap-3 mt-4">
+                            <button
+                                onClick={handleJoinPodCell}
+                                disabled={!roomId}
+                                className="btn w-full py-4 text-lg"
+                            >
+                                Join Pod Cell
+                            </button>
+                            
+                            <button
+                                onClick={handleCreateRoom}
+                                className="btn-outline btn w-full py-4 text-lg border-amber-600/50 text-amber-500 hover:bg-amber-600/10"
+                            >
+                                {roomId ? 'Create This Room' : 'Create New Room'}
+                            </button>
+                        </div>
                     </div>
                 </div>
 

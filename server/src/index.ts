@@ -1,9 +1,13 @@
-import express from "express"
+import express from "express";
 import { error } from "node:console";
 import { WebSocketServer,WebSocket } from "ws";
-const app = express();
-app.use(express.json());
+import cors from "cors";
+import recordRouter from "./controller/record.js";
 
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use("/api/record", recordRouter);
 const wss = new WebSocketServer({ port: 8080 });
 
 interface Room {
