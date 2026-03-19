@@ -1,13 +1,12 @@
-import express from 'express';
+import type { Request, Response } from 'express';
 import { s3Client } from '../config/aws.js';
 import { CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-const router = express.Router();
 const BUCKET_NAME = process.env.AWS_BUCKET_NAME;
 
 // 1. Start multipart upload
-router.post('/start', async (req, res) => {
+export const startRecording = async (req: Request, res: Response): Promise<void> => {
     try {
         const key = `recording-${Date.now()}.webm`;
         const command = new CreateMultipartUploadCommand({
@@ -21,15 +20,15 @@ router.post('/start', async (req, res) => {
         console.error("Start upload error:", error);
         res.status(500).json({ error: 'Failed to start upload' });
     }
-});
+};
 
 // 2. Upload part
-// We use express.raw to get the body as a Buffer.
-router.post('/upload', express.raw({ type: '*/*', limit: '100mb' }), async (req, res) => {
+export const uploadPart = async (req: Request, res: Response): Promise<void> => {
     try {
         const { uploadId, key, partNumber } = req.query;
         if (!uploadId || !key || !partNumber) {
-            return res.status(400).json({ error: 'Missing parameters' });
+            res.status(400).json({ error: 'Missing parameters' });
+            return;
         }
 
         const command = new UploadPartCommand({
@@ -46,14 +45,15 @@ router.post('/upload', express.raw({ type: '*/*', limit: '100mb' }), async (req,
         console.error("Upload part error:", error);
         res.status(500).json({ error: 'Failed to upload part' });
     }
-});
+};
 
 // 3. Complete upload
-router.post('/complete', express.json(), async (req, res) => {
+export const completeRecording = async (req: Request, res: Response): Promise<void> => {
     try {
         const { uploadId, key, parts } = req.body;
         if (!uploadId || !key || !parts || !Array.isArray(parts)) {
-            return res.status(400).json({ error: 'Missing parameters' });
+            res.status(400).json({ error: 'Missing parameters' });
+            return;
         }
 
         const command = new CompleteMultipartUploadCommand({
@@ -72,10 +72,10 @@ router.post('/complete', express.json(), async (req, res) => {
         console.error("Complete upload error:", error);
         res.status(500).json({ error: 'Failed to complete upload' });
     }
-});
+};
 
 // 4. List videos
-router.get('/list', async (req, res) => {
+export const listVideos = async (req: Request, res: Response): Promise<void> => {
     try {
         const command = new ListObjectsV2Command({
             Bucket: BUCKET_NAME,
@@ -97,13 +97,16 @@ router.get('/list', async (req, res) => {
         console.error("List videos error:", error);
         res.status(500).json({ error: 'Failed to list videos' });
     }
-});
+};
 
 // 5. Get video pre-signed URL
-router.get('/url', async (req, res) => {
+export const getVideoUrl = async (req: Request, res: Response): Promise<void> => {
     try {
         const { key } = req.query;
-        if (!key) return res.status(400).json({ error: 'Missing key' });
+        if (!key) {
+            res.status(400).json({ error: 'Missing key' });
+            return;
+        }
 
         const command = new GetObjectCommand({
             Bucket: BUCKET_NAME,
@@ -116,6 +119,4 @@ router.get('/url', async (req, res) => {
         console.error("Get URL error:", error);
         res.status(500).json({ error: 'Failed to get url' });
     }
-});
-
-export default router;
+};

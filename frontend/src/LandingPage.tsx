@@ -90,6 +90,15 @@ export const LandingPage = () => {
                     </div>
                 </div>
 
+                <div className="mt-8">
+                    <button 
+                        onClick={() => navigate("/request-email")} 
+                        className="text-amber-500 hover:text-amber-400 text-sm font-medium underline underline-offset-4"
+                    >
+                        Want your recording link sent to your email? Click Here.
+                    </button>
+                </div>
+
                 {/* Footer Credits */}
                 <footer className="mt-24 pb-8">
                     <p className="text-sm font-medium text-slate-500 tracking-wider">

@@ -3,6 +3,7 @@ import { Sender } from "./components/Sender"
 import { Receiver } from "./components/receiver"
 import { LandingPage } from "./LandingPage"
 import { Recordings } from "./components/Recordings"
+import { EmailRequest } from "./components/EmailRequest"
 
 function App() {
 
@@ -13,6 +14,7 @@ function App() {
         <Route path="/sender/:roomId" element={<Sender/>}/>
         <Route path="/receiver/:roomId" element={<Receiver/>}/>
         <Route path="/recordings" element={<Recordings/>}/>
+        <Route path="/request-email" element={<EmailRequest/>}/>
       </Routes>
     </BrowserRouter>
   )

@@ -108,7 +108,9 @@ async function startRecording() {
         const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/record/start`, { method: 'POST' });
         const data = await response.json();
         
-        setSessionId(data.key);
+        // Extract timestamp from 'recording-TIMESTAMP.webm' for a simpler user-facing ID
+        const match = data.key.match(/recording-(\d+)\.webm/);
+        setSessionId(match ? match[1] : data.key);
         
         uploadContext.current = {
             uploadId: data.uploadId,
