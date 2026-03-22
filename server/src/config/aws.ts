@@ -9,3 +9,4 @@ export const s3Client : S3Client = new S3Client({
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
       },
 });
+
