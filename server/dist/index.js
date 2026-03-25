@@ -2,7 +2,7 @@ import express from "express";
 import { error } from "node:console";
 import { WebSocketServer, WebSocket } from "ws";
 import cors from "cors";
-import recordRouter from "./controller/record.js";
+import recordRouter from "./routes/recordRoutes.js";
 const app = express();
 app.use(cors());
 app.use(express.json());
