@@ -65,7 +65,7 @@ io.on('connection', (socket) => {
             const email = payload?.email || '';
             const salt = Math.floor(100000 + Math.random() * 900000).toString();
             const key = email
-                ? `recordingfs-${Date.now()}-${email}-${salt}.webm`
+                ? `recording-${Date.now()}-${email}-${salt}.webm`
                 : `recording-${Date.now()}.webm`;
             const command = new CreateMultipartUploadCommand({
                 Bucket: process.env.AWS_BUCKET_NAME,
@@ -75,10 +75,25 @@ io.on('connection', (socket) => {
             const upload = await s3Client.send(command);
             console.log(`Recording started: ${key}`);
             callback({ uploadId: upload.UploadId, key, salt });
+            // Broadcast to the other user in the room
+            const roomId = socket.data.room;
+            if (roomId && rooms[roomId]) {
+                const otherUser = rooms[roomId].users.find(u => u.id !== socket.id);
+                if (otherUser)
+                    otherUser.emit("recording-started", { sessionId: key, salt });
+            }
         }
         catch (err) {
             console.error("Socket start-recording error:", err);
             callback({ error: 'Failed to start recording' });
+        }
+    });
+    socket.on('stop-recording', () => {
+        const roomId = socket.data.room;
+        if (roomId && rooms[roomId]) {
+            const otherUser = rooms[roomId].users.find(u => u.id !== socket.id);
+            if (otherUser)
+                otherUser.emit("recording-stopped");
         }
     });
     socket.on('ice-candidate', (payload) => {

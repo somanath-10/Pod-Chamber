@@ -32,12 +32,15 @@ export const Sender = () => {
     const [salt,setSalt] = useState<string>("");
     const [mediaReady,setMediaReady] = useState<boolean>(false);
     const [isRecording, setIsRecording] = useState(false);
+    const [isRemoteRecording, setIsRemoteRecording] = useState(false);
+    const [hasGuest, setHasGuest] = useState(false);
     const [sessionId, setSessionId] = useState("");
     const [showCopyModal, setShowCopyModal] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(false);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
+    const displayStreamRef = useRef<MediaStream | null>(null);
     const uploadContext = useRef({ uploadId: "", key: "", parts: [] as { PartNumber: number, ETag: string }[], partNumber: 1, isCompleting: false });
     const remoteMediaStreamRef = useRef<MediaStream | null>(new MediaStream());
 
@@ -71,7 +74,16 @@ export const Sender = () => {
             }
         }
         getMedia();
-    },[socket])
+
+        return () => {
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => {
+                    track.stop();
+                });
+                localStreamRef.current = null;
+            }
+        };
+    }, []);
 
     
     const handleRemoteTrack = (event: RTCTrackEvent) => {
@@ -86,6 +98,7 @@ export const Sender = () => {
 
         if(!remoteVideoRef.current.srcObject){
             remoteVideoRef.current.srcObject = stream;
+            setHasGuest(true);
         }
 
         if(remoteAudioRef.current && !remoteAudioRef.current.srcObject){
@@ -101,13 +114,14 @@ export const Sender = () => {
 
 
     useEffect(()=>{
-        if(!roomid)return;
+        if(!roomid || !mediaReady) return;
 
         const socket:Socket = io(import.meta.env.VITE_WS_URL || import.meta.env.VITE_API_URL || 'http://localhost:3000');
         setSocket(socket);
         dispatch(setReduxSocket(socket));
 
         socket.emit("join-room",{room:roomid});
+        setIsConnected(true);
 
         socket.on("send-offer",async ()=>{
             console.log("in send offer")
@@ -183,13 +197,30 @@ export const Sender = () => {
 
         socket.on("peer-disconnected", () => {
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+            remoteMediaStreamRef.current = new MediaStream();
             if (pcRef.current) {
                 pcRef.current.close();
                 pcRef.current = null;
             }
+            setHasGuest(false);
             console.log("Peer disconnected.");
             toast("Guest disconnected");
         })
+
+        socket.on("recording-started", (data: any) => {
+            setIsRecording(true);
+            setIsRemoteRecording(true);
+            setSessionId(data.sessionId);
+            setSalt(data.salt);
+            toast("Remote guest started recording");
+        });
+
+        socket.on("recording-stopped", () => {
+            setIsRecording(false);
+            setIsRemoteRecording(false);
+            setShowCopyModal(true);
+            toast("Recording completed by guest");
+        });
 
         return () => {
             socket.disconnect();
@@ -204,7 +235,43 @@ async function startRecording() {
     
     try {
         if (!socket) throw new Error("Socket not connected");
+        // Configure screen recording to default to the current Chrome tab
+        const displayMediaOptions: any = {
+            video: {
+                displaySurface: "browser",
+            },
+            audio: true,
+            preferCurrentTab: true,
+            systemAudio: "include"
+        };
         
+        const displayStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions).catch(() => {
+            throw new Error("Screen sharing permissions were denied or cancelled.");
+        });
+        displayStreamRef.current = displayStream;
+
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const audioCtx = new AudioContextClass();
+        const dest = audioCtx.createMediaStreamDestination();
+        
+        if (localStreamRef.current && localStreamRef.current.getAudioTracks().length > 0) {
+            const localSource = audioCtx.createMediaStreamSource(localStreamRef.current);
+            localSource.connect(dest);
+        }
+        
+        if (displayStream.getAudioTracks().length > 0) {
+            const displaySource = audioCtx.createMediaStreamSource(displayStream);
+            displaySource.connect(dest);
+        } else if (remoteMediaStreamRef.current && remoteMediaStreamRef.current.getAudioTracks().length > 0) {
+            const remoteSource = audioCtx.createMediaStreamSource(remoteMediaStreamRef.current);
+            remoteSource.connect(dest);
+        }
+
+        const finalStream = new MediaStream([
+            displayStream.getVideoTracks()[0],
+            ...dest.stream.getAudioTracks()
+        ]);
+
         const data: any = await new Promise((resolve, reject) => {
             socket.emit("start-recording", { email, room: roomid }, (response: any) => {
                 if (response?.error) reject(new Error(response.error));
@@ -223,8 +290,7 @@ async function startRecording() {
             isCompleting: false
         };
 
-        const stream = localVideoRef.current.srcObject as MediaStream;
-        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp8,opus' });
+        const mediaRecorder = new MediaRecorder(finalStream, { mimeType: 'video/webm; codecs=vp8,opus' });
         mediaRecorderRef.current = mediaRecorder;
 
         let currentBuffer: Blob[] = [];
@@ -279,6 +345,7 @@ async function completeRecording() {
         await apiConnector.completeRecording(uploadContext.current.uploadId, uploadContext.current.key, uploadContext.current.parts);
         toast.success("Recording saved to cloud!");
         setShowCopyModal(true);
+        socket?.emit('stop-recording');
     } catch (e) {
         toast.error("Failed to save recording");
     }
@@ -307,10 +374,14 @@ function stopRecording() {
         mediaRecorderRef.current.stop();
         setIsRecording(false);
     }
+    if (displayStreamRef.current) {
+        displayStreamRef.current.getTracks().forEach(track => track.stop());
+        displayStreamRef.current = null;
+    }
 }
 
 function Disconnect() {
-    if (isRecording) {
+    if (isRecording && !isRemoteRecording) {
         stopRecording();
     }
     
@@ -381,7 +452,7 @@ return (
                     <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/60 backdrop-blur-md text-white text-xs font-semibold tracking-wider uppercase rounded-lg border border-white/10">
                         Guest (Remote)
                     </div>
-                    {!remoteVideoRef.current?.srcObject && (
+                    {!hasGuest && (
                         <div className="absolute inset-0 flex items-center justify-center">
                             <span className="text-slate-500 font-medium tracking-wide">Waiting for guest...</span>
                         </div>
@@ -394,7 +465,7 @@ return (
                 <input
                     type="text"
                     value={roomid}
-                    onChange={(e) => dispatch(setReduxRoomId(e.target.value))}
+                    // onChange={(e) => dispatch(setReduxRoomId(e.target.value))}
                     className="input !mb-0 min-w-[200px] text-center bg-slate-800/80 border-slate-600 focus:border-amber-500"
                     placeholder="Room ID"
                 />
@@ -443,14 +514,16 @@ return (
 
                 {isConnected && (
                     <div className="flex items-center gap-3 pl-4 border-l border-slate-700/50 ml-2">
-                        <button 
-                            onClick={isRecording ? stopRecording : startRecording} 
-                            className={`btn px-6 text-sm whitespace-nowrap shadow-lg ${isRecording 
-                                ? 'bg-[linear-gradient(135deg,#ef4444_0%,#b91c1c_100%)] hover:bg-[linear-gradient(135deg,#f87171_0%,#dc2626_100%)] shadow-red-500/30 text-white' 
-                                : 'bg-slate-800 hover:bg-slate-700 text-white shadow-none border border-slate-600 hover:border-slate-500'}`}
-                        >
-                            {isRecording ? '■ Stop Recording' : '● Start Recording'}
-                        </button>
+                        {!isRemoteRecording && (
+                            <button 
+                                onClick={isRecording ? stopRecording : startRecording} 
+                                className={`btn px-6 text-sm whitespace-nowrap shadow-lg ${isRecording 
+                                    ? 'bg-[linear-gradient(135deg,#ef4444_0%,#b91c1c_100%)] hover:bg-[linear-gradient(135deg,#f87171_0%,#dc2626_100%)] shadow-red-500/30 text-white' 
+                                    : 'bg-slate-800 hover:bg-slate-700 text-white shadow-none border border-slate-600 hover:border-slate-500'}`}
+                            >
+                                {isRecording ? '■ Stop Recording' : '● Start Recording'}
+                            </button>
+                        )}
                         <button onClick={Disconnect} className="btn-secondary px-6 text-sm hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 whitespace-nowrap">
                             Disconnect
                         </button>

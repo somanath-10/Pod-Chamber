@@ -2,7 +2,6 @@ import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { Toaster } from "react-hot-toast"
 import { Sender } from "./components/Sender"
 import { LandingPage } from "./LandingPage"
-import { Recordings } from "./components/Recordings"
 import { EmailRequest } from "./components/EmailRequest"
 
 function App() {
@@ -27,7 +26,6 @@ function App() {
       <Routes>
         <Route path="/" element={<LandingPage/>}/>
         <Route path="/sender/:roomId" element={<Sender/>}/>
-        <Route path="/recordings" element={<Recordings/>}/>
         <Route path="/request-email" element={<EmailRequest/>}/>
       </Routes>
     </BrowserRouter>

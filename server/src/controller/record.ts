@@ -12,8 +12,8 @@ export const startRecording = async (req: Request, res: Response): Promise<void>
         // Generate a 6-digit random number for the salt
         const salt = Math.floor(100000 + Math.random() * 900000).toString();
 
-        const key = email 
-            ? `recordingfs-${Date.now()}-${email}-${salt}.webm` 
+        const key = email
+            ? `recording-${Date.now()}-${email}-${salt}.webm`
             : `recording-${Date.now()}.webm`;
 
         const command = new CreateMultipartUploadCommand({
@@ -37,7 +37,7 @@ export const uploadPart = async (req: Request, res: Response): Promise<void> => 
             res.status(400).json({ error: 'Missing parameters' });
             return;
         }
-        
+
 
         const command = new UploadPartCommand({
             Bucket: BUCKET_NAME,
@@ -87,7 +87,7 @@ export const listVideos = async (req: Request, res: Response): Promise<void> => 
     try {
         const command = new ListObjectsV2Command({
             Bucket: BUCKET_NAME,
-            Prefix: 'recording-'
+            Prefix: 'recording'
         });
         const response = await s3Client.send(command);
 
@@ -118,7 +118,8 @@ export const getVideoUrl = async (req: Request, res: Response): Promise<void> =>
 
         const command = new GetObjectCommand({
             Bucket: BUCKET_NAME,
-            Key: key as string
+            Key: key as string,
+            ResponseContentDisposition: `attachment; filename="${key}"`
         });
 
         const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });

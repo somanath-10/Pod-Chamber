@@ -8,7 +8,7 @@ const BUCKET_NAME = process.env.AWS_BUCKET_NAME;
 
 export async function sendRecordingEmail(email: string, url: string, sessionId: string) {
     let transporter;
-    
+
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
         transporter = nodemailer.createTransport({
             service: 'gmail', // Standard, can be overridden if needed
@@ -51,9 +51,9 @@ export async function sendRecordingEmail(email: string, url: string, sessionId: 
 
     const previewUrl = nodemailer.getTestMessageUrl(info);
     if (previewUrl) {
-         console.log("Email preview URL: %s", previewUrl);
+        console.log("Email preview URL: %s", previewUrl);
     }
-    
+
     return previewUrl;
 }
 
@@ -65,21 +65,18 @@ export const handleEmailRecording = async (req: Request, res: Response): Promise
             return;
         }
 
+        
+
         let key = sessionId;
-        if (!key.startsWith('recording-')) {
-            key = `recording-${key}`;
-        }
-        if (!key.endsWith('.webm')) {
-            key = `${key}.webm`;
-        }
 
         const command = new GetObjectCommand({
             Bucket: BUCKET_NAME,
-            Key: key
+            Key: key,
+            ResponseContentDisposition: `attachment; filename="${key}"`
         });
-        
+
         const url = await getSignedUrl(s3Client, command, { expiresIn: 86400 });
-        
+
         const previewUrl = await sendRecordingEmail(email, url, sessionId);
 
         res.json({ success: true, previewUrl });
