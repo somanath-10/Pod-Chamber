@@ -3,7 +3,7 @@ import {useNavigate, useParams } from "react-router-dom";
 import io, { Socket } from "socket.io-client";
 import { useSelector, useDispatch } from "react-redux";
 import { type RootState } from "../reducers/store";
-import { setSocket as setReduxSocket, clearSession, setRoomId as setReduxRoomId } from "../reducers/slices/sessionSlice";
+import { setSocket as setReduxSocket, clearSession } from "../reducers/slices/sessionSlice";
 import { apiConnector } from "../services/apiConnector";
 import toast from "react-hot-toast";
 
