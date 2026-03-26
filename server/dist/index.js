@@ -1,158 +1,115 @@
 import express from "express";
-import { error } from "node:console";
-import { WebSocketServer, WebSocket } from "ws";
+import { createServer } from "http";
+import { Server, Socket } from "socket.io";
 import cors from "cors";
 import recordRouter from "./routes/recordRoutes.js";
+import { s3Client } from "./config/aws.js";
+import { CreateMultipartUploadCommand } from "@aws-sdk/client-s3";
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use("/api/record", recordRouter);
-const wss = new WebSocketServer({ port: 8080 });
 const rooms = {};
-wss.on('connection', function connection(ws) {
-    ws.on('message', function message(data) {
-        let payload;
-        try {
-            payload = JSON.parse(data);
-        }
-        catch (e) {
-            console.error("Invalid JSON:", data);
-            return;
-        }
-        const roomId = payload.room;
+// Create a combined HTTP server for Express and Socket.IO on port 3000
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+io.on('connection', (socket) => {
+    socket.on('join-room', (payload) => {
+        const roomId = payload?.room;
         if (!roomId)
             return;
-        if (payload.type === "identify-sender") {
-            if (!rooms[roomId]) {
-                rooms[roomId] = { sender: ws, receiver: null, bufferedSenderCandidates: [], bufferedReceiverCandidates: [] };
-            }
-            else {
-                rooms[roomId].sender = ws;
-            }
-            console.log(`Sender identified for room: ${roomId}`);
-            // Send buffered messages to sender
-            const room = rooms[roomId];
-            if (room.bufferedAnswer) {
-                ws.send(JSON.stringify({ type: "create-answer", sdp: room.bufferedAnswer }));
-                room.bufferedAnswer = null;
-            }
-            room.bufferedReceiverCandidates.forEach(candidate => {
-                ws.send(JSON.stringify({ type: "ice-candidate", candidate }));
-            });
-            room.bufferedReceiverCandidates = [];
+        socket.data.room = roomId;
+        if (!rooms[roomId]) {
+            rooms[roomId] = { users: [socket] };
         }
-        else if (payload.type === "identify-receiver") {
-            if (!rooms[roomId]) {
-                rooms[roomId] = { sender: null, receiver: ws, bufferedSenderCandidates: [], bufferedReceiverCandidates: [] };
-            }
-            else {
-                rooms[roomId].receiver = ws;
-            }
-            console.log(`Receiver identified for room: ${roomId}`);
+        else {
             const room = rooms[roomId];
-            // Notify sender that a receiver has joined
-            room.sender?.send(JSON.stringify({ type: "receiver-joined" }));
-            // Send buffered messages to receiver
-            if (room.bufferedOffer) {
-                ws.send(JSON.stringify({ type: "create-offer", sdp: room.bufferedOffer }));
-                room.bufferedOffer = null;
-            }
-            room.bufferedSenderCandidates.forEach(candidate => {
-                ws.send(JSON.stringify({ type: "ice-candidate", candidate }));
-            });
-            room.bufferedSenderCandidates = [];
-        }
-        else if (payload.type === "create-offer") {
-            const room = rooms[roomId];
-            if (room) {
-                if (room.receiver) {
-                    room.receiver.send(JSON.stringify({ type: "create-offer", sdp: payload.sdp }));
-                    console.log(`Offer routed in room: ${roomId}`);
-                }
-                else {
-                    room.bufferedOffer = payload.sdp;
-                    console.log(`Offer buffered for room: ${roomId}`);
-                }
-            }
-        }
-        else if (payload.type === "create-answer") {
-            const room = rooms[roomId];
-            if (room) {
-                if (room.sender) {
-                    room.sender.send(JSON.stringify({ type: "create-answer", sdp: payload.sdp }));
-                    console.log(`Answer routed in room: ${roomId}`);
-                }
-                else {
-                    room.bufferedAnswer = payload.sdp;
-                    console.log(`Answer buffered for room: ${roomId}`);
-                }
-            }
-        }
-        else if (payload.type === "ice-candidate") {
-            const room = rooms[roomId];
-            if (!room)
+            if (room.users.length === 2)
                 return;
-            if (ws === room.sender) {
-                if (room.receiver) {
-                    room.receiver.send(JSON.stringify({ type: "ice-candidate", candidate: payload.candidate }));
-                }
-                else {
-                    room.bufferedSenderCandidates.push(payload.candidate);
-                }
-            }
-            else if (ws === room.receiver) {
-                if (room.sender) {
-                    room.sender.send(JSON.stringify({ type: "ice-candidate", candidate: payload.candidate }));
-                }
-                else {
-                    room.bufferedReceiverCandidates.push(payload.candidate);
-                }
+            if (room.users.length === 1 && !room.users.includes(socket)) {
+                room.users.push(socket);
+                // Room is full, tell the FIRST user to create the offer
+                if (room.users[0])
+                    room.users[0].emit("send-offer", { roomId });
             }
         }
-        else if (payload.type === "Disconnect") {
-            const room = rooms[roomId];
-            if (room) {
-                if (ws === room.sender) {
-                    // Sender kills the room
-                    room.receiver?.send(JSON.stringify({ type: "peer-disconnected" }));
-                    delete rooms[roomId];
-                    console.log(`Room ${roomId} deleted as Sender disconnected.`);
-                }
-                else if (ws === room.receiver) {
-                    room.receiver = null;
-                    room.sender?.send(JSON.stringify({ type: "peer-disconnected" }));
-                    console.log(`Receiver disconnected from room: ${roomId}. Room persists.`);
-                    // Only delete room if both are gone (unlikely here since we just set receiver to null, but good for consistency)
-                    if (!room.sender && !room.receiver) {
-                        delete rooms[roomId];
-                    }
-                }
+        console.log(`User joined room: ${roomId}. Users in room: ${rooms[roomId]?.users.length}`);
+    });
+    socket.on('offer', (payload) => {
+        const roomId = payload?.room;
+        const room = rooms[roomId];
+        if (room) {
+            const otherUser = room.users.find(u => u.id !== socket.id);
+            if (otherUser) {
+                otherUser.emit("offer", { sdp: payload.sdp });
             }
         }
     });
-    ws.on('close', () => {
-        for (const roomId in rooms) {
+    socket.on('answer', (payload) => {
+        const roomId = payload?.room;
+        const room = rooms[roomId];
+        if (room) {
+            const otherUser = room.users.find(u => u.id !== socket.id);
+            if (otherUser) {
+                otherUser.emit("answer", { sdp: payload.sdp });
+            }
+        }
+    });
+    socket.on('start-recording', async (payload, callback) => {
+        try {
+            const email = payload?.email || '';
+            const salt = Math.floor(100000 + Math.random() * 900000).toString();
+            const key = email
+                ? `recordingfs-${Date.now()}-${email}-${salt}.webm`
+                : `recording-${Date.now()}.webm`;
+            const command = new CreateMultipartUploadCommand({
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Key: key,
+                ContentType: 'video/webm'
+            });
+            const upload = await s3Client.send(command);
+            console.log(`Recording started: ${key}`);
+            callback({ uploadId: upload.UploadId, key, salt });
+        }
+        catch (err) {
+            console.error("Socket start-recording error:", err);
+            callback({ error: 'Failed to start recording' });
+        }
+    });
+    socket.on('ice-candidate', (payload) => {
+        const roomId = payload?.room;
+        const room = rooms[roomId];
+        if (room) {
+            const otherUser = room.users.find(u => u.id !== socket.id);
+            if (otherUser) {
+                otherUser.emit("ice-candidate", { candidate: payload.candidate });
+            }
+        }
+    });
+    socket.on('disconnect', () => {
+        const roomId = socket.data.room;
+        if (roomId) {
             const room = rooms[roomId];
             if (room) {
-                if (room.sender === ws) {
-                    // Sender socket closed, kill the room
-                    room.receiver?.send(JSON.stringify({ type: "peer-disconnected" }));
+                const otherUser = room.users.find(u => u.id !== socket.id);
+                if (otherUser) {
+                    otherUser.emit("peer-disconnected");
+                }
+                room.users = room.users.filter(u => u.id !== socket.id);
+                if (room.users.length === 0) {
                     delete rooms[roomId];
-                    console.log(`Sender socket closed. Room ${roomId} deleted.`);
                 }
-                else if (room.receiver === ws) {
-                    room.receiver = null;
-                    room.sender?.send(JSON.stringify({ type: "peer-disconnected" }));
-                    console.log(`Receiver socket closed for room: ${roomId}. Room persists.`);
-                    if (!room.sender && !room.receiver) {
-                        delete rooms[roomId];
-                    }
-                }
+                console.log(`User disconnected from room: ${roomId}`);
             }
         }
     });
 });
-app.listen(3000, () => {
-    console.log("Server is listening on port 3000");
+httpServer.listen(3000, () => {
+    console.log("Server listening on port 3000 (Express API & Socket.IO)");
 });
 //# sourceMappingURL=index.js.map

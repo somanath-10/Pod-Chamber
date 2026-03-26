@@ -1,19 +1,36 @@
 import { useEffect, useRef, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom";
+import {useNavigate, useParams } from "react-router-dom";
+import io, { Socket } from "socket.io-client";
+import { useSelector, useDispatch } from "react-redux";
+import { type RootState } from "../reducers/store";
+import { setSocket as setReduxSocket, clearSession, setRoomId as setReduxRoomId } from "../reducers/slices/sessionSlice";
+import { apiConnector } from "../services/apiConnector";
+import toast from "react-hot-toast";
 
 export const Sender = () => {
     const { roomId: paramRoomId } = useParams();
     const navigate = useNavigate();
-    const [socket, setSocket] = useState<WebSocket | null>(null);
+    const dispatch = useDispatch();
+    const { email, roomId: reduxRoomId } = useSelector((state: RootState) => state.session);
+    const roomid = reduxRoomId || paramRoomId || "";
+
+    useEffect(() => {
+        if (!email) {
+            navigate("/");
+        }
+    }, [email, navigate]);
+
+    const [socket, setSocket] = useState<Socket | null>(null);
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const localAudioRef = useRef<HTMLAudioElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-    const [roomid, setRoom] = useState(paramRoomId || "");
     const [isConnected, setIsConnected] = useState(false);
-    
+    const Icecandidates = useRef<RTCIceCandidateInit[]>([])
     // Recording states and refs
+    const [salt,setSalt] = useState<string>("");
+    const [mediaReady,setMediaReady] = useState<boolean>(false);
     const [isRecording, setIsRecording] = useState(false);
     const [sessionId, setSessionId] = useState("");
     const [showCopyModal, setShowCopyModal] = useState(false);
@@ -22,95 +39,181 @@ export const Sender = () => {
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
     const uploadContext = useRef({ uploadId: "", key: "", parts: [] as { PartNumber: number, ETag: string }[], partNumber: 1, isCompleting: false });
+    const remoteMediaStreamRef = useRef<MediaStream | null>(new MediaStream());
 
-    useEffect(() => {
-        const socket = new WebSocket(import.meta.env.VITE_WS_URL || 'ws://localhost:8080');
+    const rtcConfig = {
+        iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" },
+            { urls: "stun:stun3.l.google.com:19302" },
+            { urls: "stun:stun4.l.google.com:19302" },
+            { urls: "stun:stun.cloudflare.com:3478" },
+            { urls: "stun:global.stun.twilio.com:3478" },
+            { urls: "stun:stun.stunprotocol.org:3478" },
+            { urls: "stun:stun.sipgate.net:3478" },
+            { urls: "stun:stun.ekiga.net" },
+        ]
+    };
+
+
+    useEffect(()=>{
+        async function getMedia(){
+            try{
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localStreamRef.current = stream;
+                if(localVideoRef.current)localVideoRef.current.srcObject = stream;
+                if(localAudioRef.current)localAudioRef.current.srcObject = stream;
+                setMediaReady(true)
+            }
+            catch(e){
+                toast.error("Camera/mic access denied");
+            }
+        }
+        getMedia();
+    },[socket])
+
+    
+    const handleRemoteTrack = (event: RTCTrackEvent) => {
+        if(!remoteVideoRef.current) return;
+
+        if(!remoteMediaStreamRef.current){
+            remoteMediaStreamRef.current = new MediaStream();
+        }
+
+        const stream = remoteMediaStreamRef.current;
+        stream.addTrack(event.track);
+
+        if(!remoteVideoRef.current.srcObject){
+            remoteVideoRef.current.srcObject = stream;
+        }
+
+        if(remoteAudioRef.current && !remoteAudioRef.current.srcObject){
+            remoteAudioRef.current.srcObject = stream;
+        }
+
+        remoteVideoRef.current.play().catch(e => console.error(e));
+        if (remoteAudioRef.current) {
+            remoteAudioRef.current.play().catch(e => console.error(e));
+        }
+    };
+    
+
+
+    useEffect(()=>{
+        if(!roomid)return;
+
+        const socket:Socket = io(import.meta.env.VITE_WS_URL || import.meta.env.VITE_API_URL || 'http://localhost:3000');
         setSocket(socket);
-        socket.onopen = () => {
-            socket.send(JSON.stringify({ type: "identify-sender", room: roomid }))
-        }
-        return () => socket.close();
-    }, [roomid])
+        dispatch(setReduxSocket(socket));
 
-    async function startSending() {
-        if (!socket) return;
-        setIsConnected(true);
-        const pc = new RTCPeerConnection();
-        pcRef.current = pc;
+        socket.emit("join-room",{room:roomid});
 
-        pc.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.send(JSON.stringify({ type: "ice-candidate", room: roomid, candidate: event.candidate }))
+        socket.on("send-offer",async ()=>{
+            console.log("in send offer")
+            const pc = new RTCPeerConnection(rtcConfig)
+            pcRef.current = pc;
+
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => {
+                    pc.addTrack(track, localStreamRef.current!);
+                });
             }
-        }
 
-        pc.onnegotiationneeded = async () => {
-            try {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                socket?.send(JSON.stringify({ type: 'create-offer', room: roomid, sdp: pc.localDescription }));
-            } catch (e) {
-                console.error("Error during negotiation:", e);
-            }
-        }
-
-    socket.onmessage = async (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'create-answer') {
-            if (pc.signalingState === 'have-local-offer') {
-                try {
-                    await pc.setRemoteDescription(message.sdp);
-                } catch (e) {
-                    console.error("Error setting remote description:", e);
+            pc.onicecandidate = (e)=>{
+                if(e.candidate){
+                    socket.emit("ice-candidate",{room:roomid,candidate:e.candidate})
                 }
+            }   
+            pc.ontrack = handleRemoteTrack
+            
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit("offer",{room:roomid,sdp:pc.localDescription})
+        })
+
+        socket.on("offer",async (data:any)=>{
+            console.log("in offer")
+            const pc = new RTCPeerConnection(rtcConfig)
+            pcRef.current = pc;
+
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => {
+                    pc.addTrack(track, localStreamRef.current!);
+                });
+            }
+
+            pc.onicecandidate = (e)=>{
+                if(e.candidate){
+                    socket.emit("ice-candidate",{room:roomid,candidate:e.candidate})
+                }
+            }   
+            pc.ontrack = handleRemoteTrack
+            
+            await pc.setRemoteDescription(data.sdp);
+            
+            // Apply any queued candidates
+            for (const candidate of Icecandidates.current) {
+                await pc.addIceCandidate(candidate);
+            }
+            Icecandidates.current = [];
+
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit("answer",{room:roomid,sdp:pc.localDescription})
+        })
+
+        socket.on("answer",async (data:any)=>{
+            await pcRef.current?.setRemoteDescription(data.sdp);
+
+            // Apply any queued candidates
+            for (const candidate of Icecandidates.current) {
+                await pcRef.current?.addIceCandidate(candidate);
+            }
+            Icecandidates.current = [];
+        })
+
+        socket.on("ice-candidate",async (data:any)=>{
+            if (pcRef.current && pcRef.current.remoteDescription) {
+                await pcRef.current.addIceCandidate(data.candidate);
             } else {
-                console.warn("Ignoring answer in state:", pc.signalingState);
+                Icecandidates.current.push(data.candidate);
             }
-        }
-        else if (message.type === "ice-candidate") {
-            try {
-                await pc.addIceCandidate(message.candidate);
-            } catch (e) {
-                console.error("Error adding ice candidate:", e);
-            }
-        } else if (message.type === "receiver-joined") {
-            // New receiver came in or refreshed, trigger new offer
-            console.log("Receiver joined, re-negotiating...");
-            pc.onnegotiationneeded?.(new Event('negotiationneeded'));
-        } else if (message.type === "peer-disconnected") {
+        })
+
+        socket.on("peer-disconnected", () => {
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-            console.log("Receiver disconnected.");
+            if (pcRef.current) {
+                pcRef.current.close();
+                pcRef.current = null;
+            }
+            console.log("Peer disconnected.");
+            toast("Guest disconnected");
+        })
 
-        }
-    }
+        return () => {
+            socket.disconnect();
+        };
+    },[mediaReady])
 
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localStreamRef.current = stream;
-        stream.getTracks().forEach(track => pc.addTrack(track, stream));
-        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-        if (localAudioRef.current) localAudioRef.current.srcObject = stream;
-    } catch (e) {
-        console.error("Error getting user media:", e);
-    }
 
-    pc.ontrack = (event) => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
-        if (remoteAudioRef.current) remoteAudioRef.current.srcObject = event.streams[0];
-    }
-}
 
 // Recording Functions
 async function startRecording() {
     if (!localVideoRef.current?.srcObject) return;
     
     try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/record/start`, { method: 'POST' });
-        const data = await response.json();
+        if (!socket) throw new Error("Socket not connected");
         
-        // Extract timestamp from 'recording-TIMESTAMP.webm' for a simpler user-facing ID
-        const match = data.key.match(/recording-(\d+)\.webm/);
-        setSessionId(match ? match[1] : data.key);
+        const data: any = await new Promise((resolve, reject) => {
+            socket.emit("start-recording", { email, room: roomid }, (response: any) => {
+                if (response?.error) reject(new Error(response.error));
+                else resolve(response);
+            });
+        });
+
+        setSalt(data.salt || "");
+        setSessionId(data.key);
         
         uploadContext.current = {
             uploadId: data.uploadId,
@@ -145,12 +248,7 @@ async function startRecording() {
                     const chunkArrayBuffer = await chunkBlob.arrayBuffer();
                     
                     try {
-                        const uploadRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/record/upload?uploadId=${uploadContext.current.uploadId}&key=${uploadContext.current.key}&partNumber=${currentPart}`, {
-                            method: 'POST',
-                            body: chunkArrayBuffer,
-                            headers: { 'Content-Type': 'application/octet-stream' }
-                        });
-                        const uploadData = await uploadRes.json();
+                        const uploadData = await apiConnector.uploadPart(uploadContext.current.uploadId, uploadContext.current.key, currentPart, chunkArrayBuffer);
                         
                         if (uploadData.ETag) {
                             uploadContext.current.parts.push({ PartNumber: currentPart, ETag: uploadData.ETag });
@@ -161,35 +259,28 @@ async function startRecording() {
                             completeRecording();
                         }
                     } catch (e) {
-                        console.error("Chunk upload failed", e);
+                        toast.error("Chunk upload failed");
                     }
                 }
             }
         };
 
-        mediaRecorder.start(1000); // Poll for data every 1 second, but we buffer until 6MB
+        mediaRecorder.start(1000);
         setIsRecording(true);
+        toast.success("Recording started");
     } catch (e) {
-        console.error("Failed to start recording:", e);
+        toast.error((e as Error).message || 'Failed to start recording');
     }
 }
 
 async function completeRecording() {
     uploadContext.current.isCompleting = true;
     try {
-        await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/record/complete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                uploadId: uploadContext.current.uploadId,
-                key: uploadContext.current.key,
-                parts: uploadContext.current.parts
-            })
-        });
-        console.log("Recording completed and saved to AWS S3!");
+        await apiConnector.completeRecording(uploadContext.current.uploadId, uploadContext.current.key, uploadContext.current.parts);
+        toast.success("Recording saved to cloud!");
         setShowCopyModal(true);
     } catch (e) {
-        console.error("Failed to complete recording:", e);
+        toast.error("Failed to save recording");
     }
 }
 
@@ -223,7 +314,7 @@ function Disconnect() {
         stopRecording();
     }
     
-    socket?.send(JSON.stringify({ type: "Disconnect", room: roomid }));
+    socket?.disconnect();
     
     // Cleanup media
     const localStream = localVideoRef.current?.srcObject as MediaStream;
@@ -235,6 +326,7 @@ function Disconnect() {
     pcRef.current = null;
     
     setIsConnected(false);
+    dispatch(clearSession());
     navigate("/");
 }
 
@@ -269,6 +361,7 @@ return (
                         {sessionId && (
                             <div className="text-[10px] font-mono text-slate-500 bg-slate-900/50 px-2 py-1 rounded border border-white/5">
                                 Session: {sessionId}
+                                {salt && <div>Salt: <span className="text-amber-400">{salt}</span></div>}
                             </div>
                         )}
                     </div>
@@ -301,17 +394,11 @@ return (
                 <input
                     type="text"
                     value={roomid}
-                    onChange={(e) => setRoom(e.target.value)}
+                    onChange={(e) => dispatch(setReduxRoomId(e.target.value))}
                     className="input !mb-0 min-w-[200px] text-center bg-slate-800/80 border-slate-600 focus:border-amber-500"
                     placeholder="Room ID"
                 />
-                <button
-                    onClick={startSending}
-                    disabled={isConnected}
-                    className="btn px-8 whitespace-nowrap min-w-[140px]"
-                >
-                    {isConnected ? 'Live' : 'Connect'}
-                </button>
+                
 
                 {isConnected && (
                     <div className="flex items-center gap-2 pl-4 border-l border-slate-700/50">
@@ -391,6 +478,7 @@ return (
                     
                     <div className="w-full bg-slate-950/50 rounded-2xl p-4 border border-white/5 font-mono text-xs text-amber-400 break-all select-all">
                         {sessionId}
+                        {salt && <div><span className="text-slate-500">Private Salt:</span> {salt}</div>}
                     </div>
 
                     <div className="flex flex-col w-full gap-3">

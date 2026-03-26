@@ -1,20 +1,29 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom";
+import { useDispatch } from "react-redux";
+import { setEmail as setReduxEmail, setRoomId as setReduxRoomId } from "./reducers/slices/sessionSlice";
 
 export const LandingPage = () => {
     const [roomId, setRoomId] = useState<string>("");
     const [userName, setUserName] = useState<string>("");
+    const [email, setEmail] = useState<string>("");
     const navigate = useNavigate();
-    
+    const dispatch = useDispatch();
+
     const handleJoinPodCell = () => {
-        if (!roomId) return;
+        if (!roomId || !email) return;
+        dispatch(setReduxEmail(email));
+        dispatch(setReduxRoomId(roomId));
         // Navigation logic for joining (assuming room ID determines role or just joins session)
-        navigate(`/receiver/${roomId}`);
+        navigate(`/sender/${roomId}`);
     };
 
     const handleCreateRoom = () => {
-        // If a room ID is typed, use it. Otherwise generate a random 6-character ID.
+        if (!email) return;
         const newRoomId = roomId || Math.random().toString(36).substring(2, 8);
+        dispatch(setReduxEmail(email));
+        dispatch(setReduxRoomId(newRoomId));
+        // If a room ID is typed, use it. Otherwise generate a random 6-character ID.
         navigate(`/sender/${newRoomId}`);
     };
 
@@ -30,8 +39,8 @@ export const LandingPage = () => {
                     </div>
                     <span className="text-xl font-bold tracking-tighter text-amber-500">PodChamber</span>
                 </div>
-                <button 
-                    onClick={() => navigate("/recordings")} 
+                <button
+                    onClick={() => navigate("/recordings")}
                     className="btn py-2 px-4 text-xs"
                 >
                     Get Recordings
@@ -56,7 +65,7 @@ export const LandingPage = () => {
                             Join a pod cell and start your podcast now!
                         </h3>
                     </div>
-                    
+
                     <div className="space-y-4">
                         <input
                             value={roomId}
@@ -70,19 +79,27 @@ export const LandingPage = () => {
                             placeholder="Enter your User Name"
                             className="input text-center"
                         />
-                        
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="Enter your Email Address"
+                            className="input text-center"
+                        />
+
                         <div className="flex flex-col gap-3 mt-4">
                             <button
                                 onClick={handleJoinPodCell}
-                                disabled={!roomId}
+                                disabled={!roomId || !email}
                                 className="btn w-full py-4 text-lg"
                             >
                                 Join Pod Cell
                             </button>
-                            
+
                             <button
                                 onClick={handleCreateRoom}
-                                className="btn-outline btn w-full py-4 text-lg border-amber-600/50 text-amber-500 hover:bg-amber-600/10"
+                                disabled={!email}
+                                className="btn-outline btn w-full py-4 text-lg border-amber-600/50 text-amber-500 hover:bg-amber-600/10 disabled:opacity-50"
                             >
                                 {roomId ? 'Create This Room' : 'Create New Room'}
                             </button>
@@ -91,8 +108,8 @@ export const LandingPage = () => {
                 </div>
 
                 <div className="mt-8">
-                    <button 
-                        onClick={() => navigate("/request-email")} 
+                    <button
+                        onClick={() => navigate("/request-email")}
                         className="text-amber-500 hover:text-amber-400 text-sm font-medium underline underline-offset-4"
                     >
                         Want your recording link sent to your email? Click Here.

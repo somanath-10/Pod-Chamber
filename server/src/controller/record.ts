@@ -8,7 +8,14 @@ const BUCKET_NAME = process.env.AWS_BUCKET_NAME;
 // 1. Start multipart upload
 export const startRecording = async (req: Request, res: Response): Promise<void> => {
     try {
-        const key = `recording-${Date.now()}.webm`;
+        const { email } = req.body || {};
+        // Generate a 6-digit random number for the salt
+        const salt = Math.floor(100000 + Math.random() * 900000).toString();
+
+        const key = email 
+            ? `recordingfs-${Date.now()}-${email}-${salt}.webm` 
+            : `recording-${Date.now()}.webm`;
+
         const command = new CreateMultipartUploadCommand({
             Bucket: BUCKET_NAME,
             Key: key,
@@ -30,6 +37,7 @@ export const uploadPart = async (req: Request, res: Response): Promise<void> => 
             res.status(400).json({ error: 'Missing parameters' });
             return;
         }
+        
 
         const command = new UploadPartCommand({
             Bucket: BUCKET_NAME,

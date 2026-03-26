@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { apiConnector } from "../services/apiConnector";
 
 interface Recording {
     key: string;
@@ -21,8 +22,7 @@ export const Recordings = () => {
     const fetchRecordings = async () => {
         try {
             setLoading(true);
-            const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/record/list`);
-            const data = await res.json();
+            const data = await apiConnector.fetchRecordingsList();
             if (data.files) {
                 setRecordings(data.files);
             }
@@ -36,8 +36,7 @@ export const Recordings = () => {
 
     const handlePlay = async (key: string) => {
         try {
-            const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/record/url?key=${encodeURIComponent(key)}`);
-            const data = await res.json();
+            const data = await apiConnector.getRecordingUrl(key);
             if (data.url) {
                 setPlayingUrl(data.url);
             }
