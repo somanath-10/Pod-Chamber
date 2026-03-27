@@ -5,7 +5,34 @@ import { useSelector, useDispatch } from "react-redux";
 import { type RootState } from "../reducers/store";
 import { setSocket as setReduxSocket, clearSession } from "../reducers/slices/sessionSlice";
 import { apiConnector } from "../services/apiConnector";
+import { BACKEND_BASE_URL } from "../utils/backendUrl";
 import toast from "react-hot-toast";
+
+const getMediaErrorMessage = (error: unknown) => {
+    const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+    const isInsecureContext = typeof window !== "undefined" && !window.isSecureContext && !isLocalhost;
+
+    if (!navigator.mediaDevices?.getUserMedia || isInsecureContext) {
+        return "Camera/mic need an HTTPS frontend on phone. Open this app over HTTPS, not a local http:// IP.";
+    }
+
+    if (error instanceof DOMException) {
+        if (error.name === "NotAllowedError" || error.name === "SecurityError") {
+            return "Camera/mic permission was blocked. Allow access in the browser site settings and try again.";
+        }
+
+        if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
+            return "No camera or microphone was found on this device.";
+        }
+
+        if (error.name === "NotReadableError" || error.name === "TrackStartError") {
+            return "Camera or microphone is already in use by another app.";
+        }
+    }
+
+    return "Unable to access camera/mic on this device.";
+};
 
 export const Sender = () => {
     const { roomId: paramRoomId } = useParams();
@@ -63,6 +90,10 @@ export const Sender = () => {
     useEffect(()=>{
         async function getMedia(){
             try{
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    throw new Error("MEDIA_DEVICES_UNAVAILABLE");
+                }
+
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 localStreamRef.current = stream;
                 if(localVideoRef.current)localVideoRef.current.srcObject = stream;
@@ -70,7 +101,8 @@ export const Sender = () => {
                 setMediaReady(true)
             }
             catch(e){
-                toast.error("Camera/mic access denied");
+                console.error("getUserMedia failed", e);
+                toast.error(getMediaErrorMessage(e), { duration: 5000 });
             }
         }
         getMedia();
@@ -116,12 +148,23 @@ export const Sender = () => {
     useEffect(()=>{
         if(!roomid || !mediaReady) return;
 
-        const socket:Socket = io(import.meta.env.VITE_API_URL);
+        const socket:Socket = io(BACKEND_BASE_URL);
         setSocket(socket);
         dispatch(setReduxSocket(socket));
 
-        socket.emit("join-room",{room:roomid});
-        setIsConnected(true);
+        socket.on("connect", () => {
+            socket.emit("join-room",{room:roomid});
+            setIsConnected(true);
+        });
+
+        socket.on("connect_error", () => {
+            setIsConnected(false);
+            toast.error("Unable to reach the signaling server");
+        });
+
+        socket.on("disconnect", () => {
+            setIsConnected(false);
+        });
 
         socket.on("send-offer",async ()=>{
             console.log("in send offer")
@@ -225,7 +268,7 @@ export const Sender = () => {
         return () => {
             socket.disconnect();
         };
-    },[mediaReady])
+    },[dispatch, mediaReady, roomid])
 
 
 
@@ -465,7 +508,7 @@ return (
                 <input
                     type="text"
                     value={roomid}
-                    // onChange={(e) => dispatch(setReduxRoomId(e.target.value))}
+                    readOnly
                     className="input !mb-0 min-w-[200px] text-center bg-slate-800/80 border-slate-600 focus:border-amber-500"
                     placeholder="Room ID"
                 />

@@ -8,7 +8,7 @@ import { CreateMultipartUploadCommand } from "@aws-sdk/client-s3";
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use("/api/record", recordRouter);
+app.use("api/record", recordRouter);
 const rooms = {};
 // Create a combined HTTP server for Express and Socket.IO on port 3000
 const httpServer = createServer(app);

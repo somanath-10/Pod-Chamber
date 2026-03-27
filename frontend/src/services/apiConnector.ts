@@ -1,8 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+import { buildBackendUrl } from "../utils/backendUrl";
 
 export const apiConnector = {
     startRecording: async (email: string) => {
-        const response = await fetch(`${API_URL}api/record/start`, {
+        const response = await fetch(buildBackendUrl("/api/record/start"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email })
@@ -12,7 +12,7 @@ export const apiConnector = {
     },
     
     uploadPart: async (uploadId: string, key: string, partNumber: number, chunkArrayBuffer: ArrayBuffer) => {
-        const uploadRes = await fetch(`${API_URL}api/record/upload?uploadId=${uploadId}&key=${key}&partNumber=${partNumber}`, {
+        const uploadRes = await fetch(buildBackendUrl(`/api/record/upload?uploadId=${uploadId}&key=${key}&partNumber=${partNumber}`), {
             method: 'POST',
             body: chunkArrayBuffer,
             headers: { 'Content-Type': 'application/octet-stream' }
@@ -22,7 +22,7 @@ export const apiConnector = {
     },
     
     completeRecording: async (uploadId: string, key: string, parts: any[]) => {
-        const response = await fetch(`${API_URL}api/record/complete`, {
+        const response = await fetch(buildBackendUrl("/api/record/complete"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ uploadId, key, parts })
@@ -32,13 +32,13 @@ export const apiConnector = {
     },
     
     fetchRecordingsList: async () => {
-        const response = await fetch(`${API_URL}api/record/list`);
+        const response = await fetch(buildBackendUrl("/api/record/list"));
         if (!response.ok) throw new Error("Failed to fetch recordings");
         return response.json();
     },
     
     getRecordingUrl: async (key: string) => {
-        const response = await fetch(`${API_URL}api/record/url?key=${encodeURIComponent(key)}`);
+        const response = await fetch(buildBackendUrl(`/api/record/url?key=${encodeURIComponent(key)}`));
         if (!response.ok) throw new Error("Failed to get recording URL");
         return response.json();
     }

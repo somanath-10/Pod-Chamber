@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom";
+import { buildBackendUrl } from "../utils/backendUrl";
 
 export const EmailRequest = () => {
     const navigate = useNavigate();
@@ -14,7 +15,7 @@ export const EmailRequest = () => {
         
         setEmailStatus({ loading: true, success: false, error: "" });
         try {
-            const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}api/record/email`, {
+            const res = await fetch(buildBackendUrl("/api/record/email"), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, sessionId: emailSessionId })
