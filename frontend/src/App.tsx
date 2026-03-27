@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom"
+import { HashRouter, Route, Routes } from "react-router-dom"
 import { Toaster } from "react-hot-toast"
 import { Sender } from "./components/Sender"
 import { LandingPage } from "./LandingPage"
@@ -7,7 +7,7 @@ import { EmailRequest } from "./components/EmailRequest"
 function App() {
 
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Toaster
         position="bottom-center"
         toastOptions={{
@@ -28,7 +28,7 @@ function App() {
         <Route path="/sender/:roomId" element={<Sender/>}/>
         <Route path="/request-email" element={<EmailRequest/>}/>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
 
