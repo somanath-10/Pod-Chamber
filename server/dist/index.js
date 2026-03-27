@@ -8,9 +8,13 @@ import { CreateMultipartUploadCommand } from "@aws-sdk/client-s3";
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use("api/record", recordRouter);
+app.use("/api/record", recordRouter);
+app.get("/health", (_req, res) => {
+    res.json({ ok: true });
+});
 const rooms = {};
-// Create a combined HTTP server for Express and Socket.IO on port 3000
+const PORT = Number(process.env.PORT) || 3000;
+// Create a combined HTTP server for Express and Socket.IO
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
@@ -124,7 +128,7 @@ io.on('connection', (socket) => {
         }
     });
 });
-httpServer.listen(3000, () => {
-    console.log("Server listening on port 3000 (Express API & Socket.IO)");
+httpServer.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT} (Express API & Socket.IO)`);
 });
 //# sourceMappingURL=index.js.map
