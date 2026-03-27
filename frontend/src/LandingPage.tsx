@@ -118,24 +118,27 @@ export const LandingPage = () => {
                         </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3">
-                        <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300">
+                    <div className="flex w-full sm:w-auto flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 sm:gap-3">
+                        <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 sm:py-1.5 text-xs text-center sm:text-left text-slate-300">
                             Signed in as <span className="text-amber-300">{storedEmail}</span>
                         </div>
                         <button
                             onClick={() => navigate("/request-email")}
-                            className="btn py-2.5 px-4 text-xs sm:text-sm"
+                            className="btn w-full sm:w-auto py-3 sm:py-2.5 px-4 text-sm inline-flex items-center justify-center gap-2"
                         >
-                            Get Recordings
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7h18M8 7V5a1 1 0 011-1h6a1 1 0 011 1v2m-9 4h10m-10 4h6" />
+                            </svg>
+                            <span className="sm:hidden">Recordings</span>
+                            <span className="hidden sm:inline">Get Recordings</span>
                         </button>
                     </div>
                 </div>
             </header>
 
             <main className="flex-1 container py-8 sm:py-12 lg:py-16 animate-fade-in">
-                <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-start">
-
-                    <section className="glass-panel rounded-[28px] sm:rounded-[32px] p-5 sm:p-7 lg:sticky lg:top-28">
+                <div className="flex justify-center mt-15">
+                    <section className="glass-panel w-full max-w-2xl rounded-[28px] sm:rounded-[32px] p-5 sm:p-7">
                         <div className="flex items-start justify-between gap-4 mb-6">
                             <div>
                                 <p className="text-xs uppercase tracking-[0.24em] text-amber-300">Start Session</p>
