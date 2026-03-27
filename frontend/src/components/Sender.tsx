@@ -116,7 +116,7 @@ export const Sender = () => {
     useEffect(()=>{
         if(!roomid || !mediaReady) return;
 
-        const socket:Socket = io(import.meta.env.VITE_WS_URL || import.meta.env.VITE_API_URL || 'http://localhost:3000');
+        const socket:Socket = io(import.meta.env.VITE_API_URL);
         setSocket(socket);
         dispatch(setReduxSocket(socket));
 
