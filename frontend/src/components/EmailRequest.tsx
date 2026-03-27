@@ -11,7 +11,10 @@ export const EmailRequest = () => {
         loading: boolean;
         success: boolean;
         error: string;
+        message?: string;
         previewUrl?: string;
+        accessUrl?: string;
+        delivery?: 'email' | 'link-only';
     }>({
         loading: false,
         success: false,
@@ -31,7 +34,15 @@ export const EmailRequest = () => {
             const data = await res.json();
 
             if (res.ok) {
-                setEmailStatus({ loading: false, success: true, error: "", previewUrl: data.previewUrl });
+                setEmailStatus({
+                    loading: false,
+                    success: true,
+                    error: "",
+                    message: data.message,
+                    previewUrl: data.previewUrl,
+                    accessUrl: data.url,
+                    delivery: data.delivery
+                });
                 setEmailSessionId("");
             } else {
                 setEmailStatus({ loading: false, success: false, error: data.error || "Failed to send email" });
@@ -75,8 +86,13 @@ export const EmailRequest = () => {
                                     <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                                     </svg>
-                                    Email sent successfully!
+                                    {emailStatus.message || 'Email sent successfully!'}
                                 </div>
+                                {emailStatus.accessUrl && (
+                                    <a href={emailStatus.accessUrl} target="_blank" rel="noreferrer" className="text-xs text-green-300/80 hover:text-green-300 underline underline-offset-2 break-all">
+                                        Open secure recording link
+                                    </a>
+                                )}
                                 {emailStatus.previewUrl && (
                                     <a href={emailStatus.previewUrl} target="_blank" rel="noreferrer" className="text-xs text-green-300/80 hover:text-green-300 underline underline-offset-2">
                                         [Dev Mode: View Email Preview]

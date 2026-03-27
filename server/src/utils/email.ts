@@ -5,8 +5,15 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client } from '../config/aws.js';
 
 const BUCKET_NAME = process.env.AWS_BUCKET_NAME;
+const EMAIL_FROM = process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@podchamber.local';
 
-export async function sendRecordingEmail(email: string, url: string, sessionId: string) {
+type EmailDeliveryResult = {
+    delivery: 'email' | 'link-only';
+    previewUrl: string | null;
+    message: string;
+};
+
+export async function sendRecordingEmail(email: string, url: string, sessionId: string): Promise<EmailDeliveryResult> {
     let transporter;
 
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
@@ -17,7 +24,7 @@ export async function sendRecordingEmail(email: string, url: string, sessionId: 
                 pass: process.env.EMAIL_PASS
             }
         });
-    } else {
+    } else if (process.env.NODE_ENV !== 'production') {
         // Development fallback: use Ethereal Email
         const testAccount = await nodemailer.createTestAccount();
         transporter = nodemailer.createTransport({
@@ -29,10 +36,16 @@ export async function sendRecordingEmail(email: string, url: string, sessionId: 
                 pass: testAccount.pass,
             },
         });
+    } else {
+        return {
+            delivery: 'link-only',
+            previewUrl: null,
+            message: 'Email is not configured on the server. Use the secure link below.'
+        };
     }
 
     const info = await transporter.sendMail({
-        from: '"PodChamber Studio" <noreply@podchamber.local>',
+        from: `"PodChamber Studio" <${EMAIL_FROM}>`,
         to: email,
         subject: "Your Recording is Ready!",
         text: `Here is the link to your recording: ${url}\n\nSession ID: ${sessionId}`,
@@ -54,7 +67,11 @@ export async function sendRecordingEmail(email: string, url: string, sessionId: 
         console.log("Email preview URL: %s", previewUrl);
     }
 
-    return previewUrl;
+    return {
+        delivery: 'email',
+        previewUrl: previewUrl || null,
+        message: 'Email sent successfully!'
+    };
 }
 
 export const handleEmailRecording = async (req: Request, res: Response): Promise<void> => {
@@ -64,9 +81,6 @@ export const handleEmailRecording = async (req: Request, res: Response): Promise
             res.status(400).json({ error: 'Missing email or sessionId' });
             return;
         }
-
-        
-
         let key = sessionId;
 
         const command = new GetObjectCommand({
@@ -77,9 +91,9 @@ export const handleEmailRecording = async (req: Request, res: Response): Promise
 
         const url = await getSignedUrl(s3Client, command, { expiresIn: 86400 });
 
-        const previewUrl = await sendRecordingEmail(email, url, sessionId);
+        const deliveryResult = await sendRecordingEmail(email, url, sessionId);
 
-        res.json({ success: true, previewUrl });
+        res.json({ success: true, url, ...deliveryResult });
     } catch (error) {
         console.error("Email send error:", error);
         res.status(500).json({ error: 'Failed to send email' });
