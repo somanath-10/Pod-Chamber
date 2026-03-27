@@ -35,6 +35,14 @@ const getMediaErrorMessage = (error: unknown) => {
     return "Unable to access camera/mic on this device.";
 };
 
+const isMobileDevice = () => {
+    if (typeof navigator === "undefined") {
+        return false;
+    }
+
+    return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+};
+
 export const Sender = () => {
     const { roomId: paramRoomId } = useParams();
     const navigate = useNavigate();
@@ -273,17 +281,32 @@ export const Sender = () => {
         try {
             if (!socket) throw new Error("Socket not connected");
 
-            const displayMediaOptions: any = {
-                video: { displaySurface: "browser" },
-                audio: true,
-                preferCurrentTab: true,
-                systemAudio: "include"
-            };
+            const canUseDisplayCapture = typeof navigator.mediaDevices?.getDisplayMedia === "function";
+            const shouldRecordCameraFeed = isMobileDevice() || !canUseDisplayCapture;
 
-            const displayStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions).catch(() => {
-                throw new Error("Screen sharing permissions were denied or cancelled.");
-            });
-            displayStreamRef.current = displayStream;
+            let displayStream: MediaStream | null = null;
+            let recordingVideoTrack: MediaStreamTrack | undefined;
+
+            if (shouldRecordCameraFeed) {
+                recordingVideoTrack = localStreamRef.current?.getVideoTracks()[0];
+                if (!recordingVideoTrack) {
+                    throw new Error("No camera video track available for recording.");
+                }
+                toast("Screen capture is not available on this device. Recording camera feed instead.");
+            } else {
+                const displayMediaOptions: any = {
+                    video: { displaySurface: "browser" },
+                    audio: true,
+                    preferCurrentTab: true,
+                    systemAudio: "include"
+                };
+
+                displayStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions).catch(() => {
+                    throw new Error("Screen sharing permissions were denied or cancelled.");
+                });
+                displayStreamRef.current = displayStream;
+                recordingVideoTrack = displayStream.getVideoTracks()[0];
+            }
 
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             const audioCtx = new AudioContextClass();
@@ -294,7 +317,7 @@ export const Sender = () => {
                 localSource.connect(dest);
             }
 
-            if (displayStream.getAudioTracks().length > 0) {
+            if (displayStream && displayStream.getAudioTracks().length > 0) {
                 const displaySource = audioCtx.createMediaStreamSource(displayStream);
                 displaySource.connect(dest);
             } else if (remoteMediaStreamRef.current && remoteMediaStreamRef.current.getAudioTracks().length > 0) {
@@ -302,10 +325,11 @@ export const Sender = () => {
                 remoteSource.connect(dest);
             }
 
-            const finalStream = new MediaStream([
-                displayStream.getVideoTracks()[0],
-                ...dest.stream.getAudioTracks()
-            ]);
+            if (!recordingVideoTrack) {
+                throw new Error("No video track available for recording.");
+            }
+
+            const finalStream = new MediaStream([recordingVideoTrack, ...dest.stream.getAudioTracks()]);
 
             const data: any = await new Promise((resolve, reject) => {
                 socket.emit("start-recording", { email: effectiveEmail, room: roomid }, (response: any) => {
