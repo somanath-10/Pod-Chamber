@@ -1,1 +1,1 @@
-{"root":["./src/index.ts","./src/config/aws.ts","./src/controller/record.ts","./src/routes/recordroutes.ts","./src/utils/email.ts","./src/utils/recordingkey.ts"],"version":"5.9.2"}
+{"root":["./src/index.ts","./src/config/aws.ts","./src/controller/record.ts","./src/jobs/recordingcleanup.ts","./src/routes/recordroutes.ts","./src/utils/email.ts","./src/utils/recordingkey.ts"],"version":"5.9.3"}

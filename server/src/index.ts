@@ -5,6 +5,7 @@ import cors from "cors";
 import recordRouter from "./routes/recordRoutes.js";
 import { s3Client } from "./config/aws.js";
 import { CreateMultipartUploadCommand } from "@aws-sdk/client-s3";
+import { startRecordingCleanupJob } from "./jobs/recordingCleanup.js";
 
 const app = express();
 app.use(cors());
@@ -22,6 +23,8 @@ interface Room {
 const rooms: Record<string, Room> = {};
 
 const PORT = Number(process.env.PORT) || 3000;
+
+startRecordingCleanupJob();
 
 // Create a combined HTTP server for Express and Socket.IO
 const httpServer = createServer(app);
