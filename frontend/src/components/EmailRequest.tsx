@@ -11,6 +11,7 @@ export const EmailRequest = () => {
         loading: boolean;
         success: boolean;
         error: string;
+        warning?: string;
         message?: string;
         previewUrl?: string;
         accessUrl?: string;
@@ -18,37 +19,49 @@ export const EmailRequest = () => {
     }>({
         loading: false,
         success: false,
-        error: ""
+        error: "",
+        warning: ""
     });
 
     const handleRequestRecording = async () => {
         if (!email || !emailSessionId) return;
 
-        setEmailStatus({ loading: true, success: false, error: "" });
+        setEmailStatus({ loading: true, success: false, error: "", warning: "" });
         try {
             const res = await fetch(buildBackendUrl("/api/record/email"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, sessionId: emailSessionId })
             });
-            const data = await res.json();
+            const rawResponse = await res.text();
+            const data = rawResponse ? (() => {
+                try {
+                    return JSON.parse(rawResponse);
+                } catch {
+                    return { error: rawResponse };
+                }
+            })() : {};
 
             if (res.ok) {
+                const delivery = data.delivery === "link-only" ? "link-only" : "email";
                 setEmailStatus({
                     loading: false,
-                    success: true,
+                    success: delivery === "email",
                     error: "",
-                    message: data.message,
+                    warning: delivery === "link-only" ? (data.message || "Email could not be delivered. Use the secure link below.") : "",
+                    message: delivery === "email" ? data.message : "",
                     previewUrl: data.previewUrl,
                     accessUrl: data.url,
-                    delivery: data.delivery
+                    delivery
                 });
-                setEmailSessionId("");
+                if (delivery === "email") {
+                    setEmailSessionId("");
+                }
             } else {
-                setEmailStatus({ loading: false, success: false, error: data.error || "Failed to send email" });
+                setEmailStatus({ loading: false, success: false, error: data.error || "Failed to send email", warning: "" });
             }
         } catch (error) {
-            setEmailStatus({ loading: false, success: false, error: "Network error occurred." });
+            setEmailStatus({ loading: false, success: false, error: "Unable to request the recording link right now.", warning: "" });
         }
     };
 
@@ -75,7 +88,7 @@ export const EmailRequest = () => {
                             Send recording access
                         </h2>
                         <p className="mt-2 text-slate-400 text-sm">
-                            Review the email, paste your session ID, and we will send the secure recording link.
+                            Paste the full recording key you copied after recording, or the numeric timestamp from it, and we will send the secure recording link.
                         </p>
                     </div>
 
@@ -95,6 +108,27 @@ export const EmailRequest = () => {
                                 )}
                                 {emailStatus.previewUrl && (
                                     <a href={emailStatus.previewUrl} target="_blank" rel="noreferrer" className="text-xs text-green-300/80 hover:text-green-300 underline underline-offset-2">
+                                        [Dev Mode: View Email Preview]
+                                    </a>
+                                )}
+                            </div>
+                        )}
+
+                        {emailStatus.warning && (
+                            <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 px-4 py-3 rounded-xl text-sm flex flex-col gap-2">
+                                <div className="flex items-center gap-2 font-medium">
+                                    <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    {emailStatus.warning}
+                                </div>
+                                {emailStatus.accessUrl && (
+                                    <a href={emailStatus.accessUrl} target="_blank" rel="noreferrer" className="text-xs text-amber-200/90 hover:text-amber-100 underline underline-offset-2 break-all">
+                                        Open secure recording link
+                                    </a>
+                                )}
+                                {emailStatus.previewUrl && (
+                                    <a href={emailStatus.previewUrl} target="_blank" rel="noreferrer" className="text-xs text-amber-200/90 hover:text-amber-100 underline underline-offset-2">
                                         [Dev Mode: View Email Preview]
                                     </a>
                                 )}
@@ -122,14 +156,17 @@ export const EmailRequest = () => {
                         </div>
 
                         <div className="space-y-1">
-                            <label className="text-xs font-semibold text-slate-400 ml-1 tracking-wider uppercase">Session ID</label>
+                            <label className="text-xs font-semibold text-slate-400 ml-1 tracking-wider uppercase">Session ID or Recording Key</label>
                             <input
                                 type="text"
                                 value={emailSessionId}
                                 onChange={(e) => setEmailSessionId(e.target.value)}
-                                placeholder="e.g. 177393..."
+                                placeholder="e.g. recording-1774633114563-you@example.com-754173.webm"
                                 className="input w-full font-mono text-amber-500/80 tracking-wider"
                             />
+                            <p className="text-xs text-slate-500 ml-1">
+                                Example numeric session ID: <span className="font-mono text-slate-400">1774633114563</span>
+                            </p>
                         </div>
 
                         <button

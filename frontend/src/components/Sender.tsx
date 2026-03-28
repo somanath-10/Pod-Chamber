@@ -463,16 +463,6 @@ export const Sender = () => {
         navigate("/");
     }
 
-    async function copyRoomId() {
-        if (!roomid) return;
-        try {
-            await navigator.clipboard.writeText(roomid);
-            toast.success("Room ID copied");
-        } catch (error) {
-            toast.error("Could not copy room ID");
-        }
-    }
-
     async function copySessionId() {
         try {
             await navigator.clipboard.writeText(sessionId);
@@ -556,15 +546,6 @@ export const Sender = () => {
 
                 <div className="grid gap-4 xl:grid-cols-[1fr_auto]">
                     <div className="glass-panel rounded-[24px] p-4 sm:p-5 border border-white/8">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <div>
-                                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Session</p>
-                                <p className="mt-2 text-sm text-slate-300">Share this room code with your guest to join the same pod cell.</p>
-                            </div>
-                            <button onClick={copyRoomId} className="btn-secondary w-full sm:w-auto px-4 py-3 text-sm">
-                                Copy Room ID
-                            </button>
-                        </div>
                         <div className="mt-4 rounded-2xl border border-white/8 bg-slate-950/50 p-4">
                             <div className="text-xs uppercase tracking-[0.24em] text-slate-500">Room ID</div>
                             <div className="mt-2 break-all font-mono text-lg text-amber-300">{roomid}</div>

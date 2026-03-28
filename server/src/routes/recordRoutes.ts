@@ -11,7 +11,7 @@ router.post('/start', startRecording);
 router.post('/upload', express.raw({ type: '*/*', limit: '100mb' }), uploadPart);
 
 // 3. Complete upload
-router.post('/complete', express.json(), completeRecording);
+router.post('/complete', completeRecording);
 
 // 4. List videos
 router.get('/list', listVideos);
@@ -20,6 +20,6 @@ router.get('/list', listVideos);
 router.get('/url', getVideoUrl);
 
 // 6. Send email with video link
-router.post('/email', express.json(), handleEmailRecording);
+router.post('/email', handleEmailRecording);
 
 export default router;
