@@ -29,11 +29,6 @@ type StartRecordingSocketResponse = {
     error?: string;
 };
 
-type BrowserDisplayMediaStreamOptions = DisplayMediaStreamOptions & {
-    preferCurrentTab?: boolean;
-    systemAudio?: "include" | "exclude";
-};
-
 type AudioContextWindow = Window & {
     webkitAudioContext?: typeof AudioContext;
 };
@@ -51,6 +46,180 @@ const RTC_CONFIG: RTCConfiguration = {
         { urls: "stun:stun.sipgate.net:3478" },
         { urls: "stun:stun.ekiga.net" },
     ]
+};
+
+const RECORDING_CANVAS_WIDTH = 1280;
+const RECORDING_CANVAS_HEIGHT = 720;
+const RECORDING_FRAME_RATE = 30;
+const RECORDING_MIME_TYPE = "video/webm; codecs=vp8,opus";
+
+const isVideoRenderable = (video: HTMLVideoElement | null) =>
+    Boolean(video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 && video.videoHeight > 0);
+
+const drawVideoCover = (
+    ctx: CanvasRenderingContext2D,
+    video: HTMLVideoElement,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+) => {
+    const sourceAspect = video.videoWidth / video.videoHeight;
+    const targetAspect = width / height;
+
+    let sourceX = 0;
+    let sourceY = 0;
+    let sourceWidth = video.videoWidth;
+    let sourceHeight = video.videoHeight;
+
+    if (sourceAspect > targetAspect) {
+        sourceWidth = video.videoHeight * targetAspect;
+        sourceX = (video.videoWidth - sourceWidth) / 2;
+    } else {
+        sourceHeight = video.videoWidth / targetAspect;
+        sourceY = (video.videoHeight - sourceHeight) / 2;
+    }
+
+    ctx.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
+};
+
+const drawParticipantPanel = (
+    ctx: CanvasRenderingContext2D,
+    {
+        x,
+        y,
+        width,
+        height,
+        label,
+        accentColor,
+        placeholder,
+        video
+    }: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        label: string;
+        accentColor: string;
+        placeholder: string;
+        video: HTMLVideoElement | null;
+    }
+) => {
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(x, y, width, height);
+
+    if (isVideoRenderable(video)) {
+        drawVideoCover(ctx, video as HTMLVideoElement, x, y, width, height);
+    } else {
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(x, y, width, height);
+        ctx.fillStyle = "#64748b";
+        ctx.font = "600 30px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(placeholder, x + width / 2, y + height / 2);
+    }
+
+    ctx.font = "700 20px sans-serif";
+    ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+    ctx.fillRect(x + 20, y + 20, Math.max(140, ctx.measureText(label).width + 32), 44);
+    ctx.fillStyle = accentColor;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, x + 36, y + 42);
+};
+
+const createCompositeRecordingStream = (localVideo: HTMLVideoElement | null, remoteVideo: HTMLVideoElement | null) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = RECORDING_CANVAS_WIDTH;
+    canvas.height = RECORDING_CANVAS_HEIGHT;
+
+    if (typeof canvas.captureStream !== "function") {
+        throw new Error("Canvas recording is not supported in this browser.");
+    }
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        throw new Error("Unable to prepare the recording canvas.");
+    }
+
+    const padding = 28;
+    const gap = 24;
+    const panelWidth = (RECORDING_CANVAS_WIDTH - padding * 2 - gap) / 2;
+    const panelHeight = RECORDING_CANVAS_HEIGHT - padding * 2;
+
+    let animationFrameId = 0;
+
+    const renderFrame = () => {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, RECORDING_CANVAS_WIDTH, RECORDING_CANVAS_HEIGHT);
+
+        drawParticipantPanel(ctx, {
+            x: padding,
+            y: padding,
+            width: panelWidth,
+            height: panelHeight,
+            label: "You",
+            accentColor: "#fbbf24",
+            placeholder: "Waiting for camera...",
+            video: localVideo
+        });
+
+        drawParticipantPanel(ctx, {
+            x: padding + panelWidth + gap,
+            y: padding,
+            width: panelWidth,
+            height: panelHeight,
+            label: "Guest",
+            accentColor: "#fb923c",
+            placeholder: "Waiting for guest...",
+            video: remoteVideo
+        });
+
+        animationFrameId = window.requestAnimationFrame(renderFrame);
+    };
+
+    renderFrame();
+
+    const stream = canvas.captureStream(RECORDING_FRAME_RATE);
+    const [videoTrack] = stream.getVideoTracks();
+    if (!videoTrack) {
+        window.cancelAnimationFrame(animationFrameId);
+        throw new Error("Unable to create the recording video track.");
+    }
+
+    return { stream, animationFrameId };
+};
+
+const createMixedAudioStream = async (localStream: MediaStream | null, remoteStream: MediaStream | null) => {
+    const AudioContextClass = window.AudioContext || (window as AudioContextWindow).webkitAudioContext;
+    if (!AudioContextClass) {
+        throw new Error("Audio mixing is not supported in this browser.");
+    }
+
+    const audioContext = new AudioContextClass();
+    const destination = audioContext.createMediaStreamDestination();
+
+    const connectStream = (stream: MediaStream | null, gainValue: number) => {
+        if (!stream || stream.getAudioTracks().length === 0) {
+            return;
+        }
+
+        const source = audioContext.createMediaStreamSource(stream);
+        const gain = audioContext.createGain();
+        gain.gain.value = gainValue;
+        source.connect(gain);
+        gain.connect(destination);
+    };
+
+    connectStream(localStream, 1);
+    connectStream(remoteStream, 1);
+
+    if (audioContext.state === "suspended") {
+        await audioContext.resume();
+    }
+
+    return { audioContext, stream: destination.stream };
 };
 
 const getMediaErrorMessage = (error: unknown) => {
@@ -77,14 +246,6 @@ const getMediaErrorMessage = (error: unknown) => {
     }
 
     return "Unable to access camera/mic on this device.";
-};
-
-const isMobileDevice = () => {
-    if (typeof navigator === "undefined") {
-        return false;
-    }
-
-    return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
 };
 
 export const Sender = () => {
@@ -115,7 +276,9 @@ export const Sender = () => {
     const [isCameraOff, setIsCameraOff] = useState(false);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
-    const displayStreamRef = useRef<MediaStream | null>(null);
+    const recordingAudioContextRef = useRef<AudioContext | null>(null);
+    const recordingAnimationFrameRef = useRef<number | null>(null);
+    const recordingStreamRef = useRef<MediaStream | null>(null);
     const uploadContext = useRef({
         uploadId: "",
         key: "",
@@ -124,6 +287,23 @@ export const Sender = () => {
         isCompleting: false
     });
     const remoteMediaStreamRef = useRef<MediaStream | null>(new MediaStream());
+
+    function cleanupRecordingResources() {
+        if (recordingAnimationFrameRef.current !== null) {
+            window.cancelAnimationFrame(recordingAnimationFrameRef.current);
+            recordingAnimationFrameRef.current = null;
+        }
+
+        if (recordingStreamRef.current) {
+            recordingStreamRef.current.getTracks().forEach((track) => track.stop());
+            recordingStreamRef.current = null;
+        }
+
+        if (recordingAudioContextRef.current) {
+            void recordingAudioContextRef.current.close().catch(() => undefined);
+            recordingAudioContextRef.current = null;
+        }
+    }
 
     useEffect(() => {
         if (!email && storedEmail) {
@@ -334,71 +514,35 @@ export const Sender = () => {
                 remoteMediaStreamRef.current.getTracks().forEach(track => track.stop());
                 remoteMediaStreamRef.current = null;
             }
-            if (displayStreamRef.current) {
-                displayStreamRef.current.getTracks().forEach(track => track.stop());
-                displayStreamRef.current = null;
-            }
+            cleanupRecordingResources();
         };
     }, [dispatch, mediaReady, roomid]);
 
     async function startRecording() {
-        if (!localVideoRef.current?.srcObject) return;
+        if (!localStreamRef.current) return;
 
         try {
             if (!socket) throw new Error("Socket not connected");
+            cleanupRecordingResources();
 
-            const canUseDisplayCapture = typeof navigator.mediaDevices?.getDisplayMedia === "function";
-            const shouldRecordCameraFeed = isMobileDevice() || !canUseDisplayCapture;
+            const { stream: compositeVideoStream, animationFrameId } = createCompositeRecordingStream(
+                localVideoRef.current,
+                remoteVideoRef.current
+            );
+            recordingAnimationFrameRef.current = animationFrameId;
+            recordingStreamRef.current = compositeVideoStream;
 
-            let displayStream: MediaStream | null = null;
-            let recordingVideoTrack: MediaStreamTrack | undefined;
+            const { audioContext, stream: mixedAudioStream } = await createMixedAudioStream(
+                localStreamRef.current,
+                remoteMediaStreamRef.current
+            );
 
-            if (shouldRecordCameraFeed) {
-                recordingVideoTrack = localStreamRef.current?.getVideoTracks()[0];
-                if (!recordingVideoTrack) {
-                    throw new Error("No camera video track available for recording.");
-                }
-                toast("Screen capture is not available on this device. Recording camera feed instead.");
-            } else {
-                const displayMediaOptions: BrowserDisplayMediaStreamOptions = {
-                    video: { displaySurface: "browser" },
-                    audio: true,
-                    preferCurrentTab: true,
-                    systemAudio: "include"
-                };
+            recordingAudioContextRef.current = audioContext;
 
-                displayStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions).catch(() => {
-                    throw new Error("Screen sharing permissions were denied or cancelled.");
-                });
-                displayStreamRef.current = displayStream;
-                recordingVideoTrack = displayStream.getVideoTracks()[0];
-            }
-
-            const AudioContextClass = window.AudioContext || (window as AudioContextWindow).webkitAudioContext;
-            if (!AudioContextClass) {
-                throw new Error("Audio mixing is not supported in this browser.");
-            }
-            const audioCtx = new AudioContextClass();
-            const dest = audioCtx.createMediaStreamDestination();
-
-            if (localStreamRef.current && localStreamRef.current.getAudioTracks().length > 0) {
-                const localSource = audioCtx.createMediaStreamSource(localStreamRef.current);
-                localSource.connect(dest);
-            }
-
-            if (displayStream && displayStream.getAudioTracks().length > 0) {
-                const displaySource = audioCtx.createMediaStreamSource(displayStream);
-                displaySource.connect(dest);
-            } else if (remoteMediaStreamRef.current && remoteMediaStreamRef.current.getAudioTracks().length > 0) {
-                const remoteSource = audioCtx.createMediaStreamSource(remoteMediaStreamRef.current);
-                remoteSource.connect(dest);
-            }
-
-            if (!recordingVideoTrack) {
-                throw new Error("No video track available for recording.");
-            }
-
-            const finalStream = new MediaStream([recordingVideoTrack, ...dest.stream.getAudioTracks()]);
+            const finalStream = new MediaStream();
+            compositeVideoStream.getVideoTracks().forEach((track) => finalStream.addTrack(track));
+            mixedAudioStream.getAudioTracks().forEach((track) => finalStream.addTrack(track));
+            recordingStreamRef.current = finalStream;
 
             const data = await new Promise<Required<Pick<StartRecordingSocketResponse, "uploadId" | "key">> & Pick<StartRecordingSocketResponse, "salt">>((resolve, reject) => {
                 socket.emit("start-recording", { email: effectiveEmail, room: roomid }, (response: StartRecordingSocketResponse) => {
@@ -425,11 +569,15 @@ export const Sender = () => {
                 isCompleting: false
             };
 
-            const mediaRecorder = new MediaRecorder(finalStream, { mimeType: "video/webm; codecs=vp8,opus" });
+            const mediaRecorder = new MediaRecorder(finalStream, { mimeType: RECORDING_MIME_TYPE });
             mediaRecorderRef.current = mediaRecorder;
 
             let currentBuffer: Blob[] = [];
             let currentSize = 0;
+
+            mediaRecorder.onstop = () => {
+                cleanupRecordingResources();
+            };
 
             mediaRecorder.ondataavailable = async (event) => {
                 if (event.data && event.data.size > 0) {
@@ -471,6 +619,7 @@ export const Sender = () => {
             setIsRecording(true);
             toast.success("Recording started");
         } catch (error) {
+            cleanupRecordingResources();
             toast.error((error as Error).message || "Failed to start recording");
         }
     }
@@ -512,11 +661,6 @@ export const Sender = () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
             mediaRecorderRef.current.stop();
             setIsRecording(false);
-        }
-
-        if (displayStreamRef.current) {
-            displayStreamRef.current.getTracks().forEach((track) => track.stop());
-            displayStreamRef.current = null;
         }
     }
 
