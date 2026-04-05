@@ -3,11 +3,55 @@ import { useNavigate, useParams } from "react-router-dom";
 import io, { Socket } from "socket.io-client";
 import { useSelector, useDispatch } from "react-redux";
 import { type RootState } from "../reducers/store";
-import { setSocket as setReduxSocket, clearSession, setEmail as setReduxEmail } from "../reducers/slices/sessionSlice";
-import { apiConnector } from "../services/apiConnector";
+import { clearSession, setEmail as setReduxEmail } from "../reducers/slices/sessionSlice";
+import { apiConnector, type UploadedPart } from "../services/apiConnector";
 import { BACKEND_BASE_URL } from "../utils/backendUrl";
 import { getStoredUserEmail } from "../utils/userPreferences";
 import toast from "react-hot-toast";
+
+type SignalDescriptionPayload = {
+    sdp: RTCSessionDescriptionInit;
+};
+
+type IceCandidatePayload = {
+    candidate: RTCIceCandidateInit;
+};
+
+type RecordingStartedPayload = {
+    sessionId: string;
+    salt: string;
+};
+
+type StartRecordingSocketResponse = {
+    uploadId?: string;
+    key?: string;
+    salt?: string;
+    error?: string;
+};
+
+type BrowserDisplayMediaStreamOptions = DisplayMediaStreamOptions & {
+    preferCurrentTab?: boolean;
+    systemAudio?: "include" | "exclude";
+};
+
+type AudioContextWindow = Window & {
+    webkitAudioContext?: typeof AudioContext;
+};
+
+const RTC_CONFIG: RTCConfiguration = {
+    iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        { urls: "stun:stun4.l.google.com:19302" },
+        { urls: "stun:stun.cloudflare.com:3478" },
+        { urls: "stun:global.stun.twilio.com:3478" },
+        { urls: "stun:stun.stunprotocol.org:3478" },
+        { urls: "stun:stun.sipgate.net:3478" },
+        { urls: "stun:stun.ekiga.net" },
+    ]
+};
 
 const getMediaErrorMessage = (error: unknown) => {
     const hostname = typeof window !== "undefined" ? window.location.hostname : "";
@@ -75,26 +119,11 @@ export const Sender = () => {
     const uploadContext = useRef({
         uploadId: "",
         key: "",
-        parts: [] as { PartNumber: number; ETag: string }[],
+        parts: [] as UploadedPart[],
         partNumber: 1,
         isCompleting: false
     });
     const remoteMediaStreamRef = useRef<MediaStream | null>(new MediaStream());
-
-    const rtcConfig = {
-        iceServers: [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-            { urls: "stun:stun2.l.google.com:19302" },
-            { urls: "stun:stun3.l.google.com:19302" },
-            { urls: "stun:stun4.l.google.com:19302" },
-            { urls: "stun:stun.cloudflare.com:3478" },
-            { urls: "stun:global.stun.twilio.com:3478" },
-            { urls: "stun:stun.stunprotocol.org:3478" },
-            { urls: "stun:stun.sipgate.net:3478" },
-            { urls: "stun:stun.ekiga.net" },
-        ]
-    };
 
     useEffect(() => {
         if (!email && storedEmail) {
@@ -160,26 +189,40 @@ export const Sender = () => {
     useEffect(() => {
         if (!roomid || !mediaReady) return;
 
-        const nextSocket: Socket = io(BACKEND_BASE_URL);
+        const nextSocket: Socket = io(BACKEND_BASE_URL, {
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            randomizationFactor: 0.5,
+            timeout: 10000
+        });
         setSocket(nextSocket);
-        dispatch(setReduxSocket(nextSocket));
+
+        let isJoinedRoom = false;
 
         nextSocket.on("connect", () => {
-            nextSocket.emit("join-room", { room: roomid });
+            console.log('Socket connected');
+            if (!isJoinedRoom) {
+                nextSocket.emit("join-room", { room: roomid });
+                isJoinedRoom = true;
+            }
             setIsConnected(true);
         });
 
-        nextSocket.on("connect_error", () => {
+        nextSocket.on("connect_error", (error) => {
+            console.error('Socket connection error:', error);
             setIsConnected(false);
             toast.error("Unable to reach the signaling server");
         });
 
-        nextSocket.on("disconnect", () => {
+        nextSocket.on("disconnect", (reason) => {
+            console.log('Socket disconnected:', reason);
             setIsConnected(false);
+            isJoinedRoom = false; // Reset join flag on disconnect
         });
 
         nextSocket.on("send-offer", async () => {
-            const pc = new RTCPeerConnection(rtcConfig);
+            const pc = new RTCPeerConnection(RTC_CONFIG);
             pcRef.current = pc;
 
             if (localStreamRef.current) {
@@ -200,8 +243,8 @@ export const Sender = () => {
             nextSocket.emit("offer", { room: roomid, sdp: pc.localDescription });
         });
 
-        nextSocket.on("offer", async (data: any) => {
-            const pc = new RTCPeerConnection(rtcConfig);
+        nextSocket.on("offer", async (data: SignalDescriptionPayload) => {
+            const pc = new RTCPeerConnection(RTC_CONFIG);
             pcRef.current = pc;
 
             if (localStreamRef.current) {
@@ -228,7 +271,7 @@ export const Sender = () => {
             nextSocket.emit("answer", { room: roomid, sdp: pc.localDescription });
         });
 
-        nextSocket.on("answer", async (data: any) => {
+        nextSocket.on("answer", async (data: SignalDescriptionPayload) => {
             await pcRef.current?.setRemoteDescription(data.sdp);
             for (const candidate of iceCandidates.current) {
                 await pcRef.current?.addIceCandidate(candidate);
@@ -236,7 +279,7 @@ export const Sender = () => {
             iceCandidates.current = [];
         });
 
-        nextSocket.on("ice-candidate", async (data: any) => {
+        nextSocket.on("ice-candidate", async (data: IceCandidatePayload) => {
             if (pcRef.current && pcRef.current.remoteDescription) {
                 await pcRef.current.addIceCandidate(data.candidate);
             } else {
@@ -255,7 +298,7 @@ export const Sender = () => {
             toast("Guest disconnected");
         });
 
-        nextSocket.on("recording-started", (data: any) => {
+        nextSocket.on("recording-started", (data: RecordingStartedPayload) => {
             setIsRecording(true);
             setIsRemoteRecording(true);
             setSessionId(data.sessionId);
@@ -270,8 +313,31 @@ export const Sender = () => {
             toast("Recording completed by guest");
         });
 
+        // Handle socket errors
+        nextSocket.on("error", (error) => {
+            console.error('Socket error:', error);
+        });
+
         return () => {
             nextSocket.disconnect();
+            // Clean up any open peer connections
+            if (pcRef.current) {
+                pcRef.current.close();
+                pcRef.current = null;
+            }
+            // Clean up media streams
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => track.stop());
+                localStreamRef.current = null;
+            }
+            if (remoteMediaStreamRef.current) {
+                remoteMediaStreamRef.current.getTracks().forEach(track => track.stop());
+                remoteMediaStreamRef.current = null;
+            }
+            if (displayStreamRef.current) {
+                displayStreamRef.current.getTracks().forEach(track => track.stop());
+                displayStreamRef.current = null;
+            }
         };
     }, [dispatch, mediaReady, roomid]);
 
@@ -294,7 +360,7 @@ export const Sender = () => {
                 }
                 toast("Screen capture is not available on this device. Recording camera feed instead.");
             } else {
-                const displayMediaOptions: any = {
+                const displayMediaOptions: BrowserDisplayMediaStreamOptions = {
                     video: { displaySurface: "browser" },
                     audio: true,
                     preferCurrentTab: true,
@@ -308,7 +374,10 @@ export const Sender = () => {
                 recordingVideoTrack = displayStream.getVideoTracks()[0];
             }
 
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const AudioContextClass = window.AudioContext || (window as AudioContextWindow).webkitAudioContext;
+            if (!AudioContextClass) {
+                throw new Error("Audio mixing is not supported in this browser.");
+            }
             const audioCtx = new AudioContextClass();
             const dest = audioCtx.createMediaStreamDestination();
 
@@ -331,10 +400,18 @@ export const Sender = () => {
 
             const finalStream = new MediaStream([recordingVideoTrack, ...dest.stream.getAudioTracks()]);
 
-            const data: any = await new Promise((resolve, reject) => {
-                socket.emit("start-recording", { email: effectiveEmail, room: roomid }, (response: any) => {
+            const data = await new Promise<Required<Pick<StartRecordingSocketResponse, "uploadId" | "key">> & Pick<StartRecordingSocketResponse, "salt">>((resolve, reject) => {
+                socket.emit("start-recording", { email: effectiveEmail, room: roomid }, (response: StartRecordingSocketResponse) => {
                     if (response?.error) reject(new Error(response.error));
-                    else resolve(response);
+                    else if (response.uploadId && response.key) {
+                        resolve({
+                            uploadId: response.uploadId,
+                            key: response.key,
+                            salt: response.salt
+                        });
+                    } else {
+                        reject(new Error("Recording session was created without upload details."));
+                    }
                 });
             });
 
@@ -381,9 +458,9 @@ export const Sender = () => {
                             }
 
                             if (isInactive && !uploadContext.current.isCompleting) {
-                                completeRecording();
+                                void completeRecording();
                             }
-                        } catch (error) {
+                        } catch {
                             toast.error("Chunk upload failed");
                         }
                     }
@@ -410,7 +487,7 @@ export const Sender = () => {
             toast.success("Recording saved to cloud!");
             setShowCopyModal(true);
             socket?.emit("stop-recording");
-        } catch (error) {
+        } catch {
             toast.error("Failed to save recording");
         }
     }
@@ -467,7 +544,7 @@ export const Sender = () => {
         try {
             await navigator.clipboard.writeText(sessionId);
             toast.success("Session ID copied");
-        } catch (error) {
+        } catch {
             toast.error("Could not copy session ID");
         }
     }

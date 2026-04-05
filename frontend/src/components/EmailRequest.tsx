@@ -60,7 +60,7 @@ export const EmailRequest = () => {
             } else {
                 setEmailStatus({ loading: false, success: false, error: data.error || "Failed to send email", warning: "" });
             }
-        } catch (error) {
+        } catch {
             setEmailStatus({ loading: false, success: false, error: "Unable to request the recording link right now.", warning: "" });
         }
     };

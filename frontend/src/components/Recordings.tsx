@@ -1,16 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiConnector } from "../services/apiConnector";
-
-interface Recording {
-    key: string;
-    lastModified: string;
-    size: number;
-}
+import { apiConnector, type RecordingFile } from "../services/apiConnector";
 
 export const Recordings = () => {
     const navigate = useNavigate();
-    const [recordings, setRecordings] = useState<Recording[]>([]);
+    const [recordings, setRecordings] = useState<RecordingFile[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [playingUrl, setPlayingUrl] = useState<string | null>(null);

@@ -36,45 +36,88 @@ const io = new Server(httpServer, {
 });
 
 io.on('connection', (socket: Socket) => {
-    socket.on('join-room', (payload: any) => {
-        const roomId = payload?.room;
-        if (!roomId) return;
-        
-        socket.data.room = roomId;
+    console.log(`Socket connected: ${socket.id}`);
 
-        if (!rooms[roomId]) {
-            rooms[roomId] = { users: [socket] };
-        } else {
-            const room = rooms[roomId];
-            if (room.users.length === 2) return;
-            if (room.users.length === 1 && !room.users.includes(socket)) {
-                room.users.push(socket);
-                // Room is full, tell the FIRST user to create the offer
-                if (room.users[0]) room.users[0].emit("send-offer", { roomId });
+    socket.on('join-room', (payload: any) => {
+        try {
+            const roomId = payload?.room;
+            if (!roomId) {
+                console.warn('Join-room attempt without roomId');
+                return;
             }
+
+            socket.data.room = roomId;
+
+            if (!rooms[roomId]) {
+                rooms[roomId] = { users: [socket] };
+                console.log(`Created room ${roomId} for socket ${socket.id}`);
+            } else {
+                const room = rooms[roomId];
+                // Check if socket is already in room (reconnect scenario)
+                const existingIndex = room.users.findIndex(u => u.id === socket.id);
+                if (existingIndex !== -1) {
+                    console.log(`Socket ${socket.id} reconnected to room ${roomId}`);
+                    return; // Already in room
+                }
+
+                if (room.users.length >= 2) {
+                    console.warn(`Room ${roomId} is full (${room.users.length} users), rejecting socket ${socket.id}`);
+                    // Optionally notify client about room being full
+                    socket.emit('room-full', { roomId });
+                    return;
+                }
+
+                room.users.push(socket);
+                console.log(`User joined room: ${roomId}. Users in room: ${room.users.length}`);
+
+                // Room is full (now 2 users), tell the FIRST user to create the offer
+                if (room.users.length === 2) {
+                    if (room.users[0]) room.users[0].emit("send-offer", { roomId });
+                }
+            }
+        } catch (error) {
+            console.error('Error in join-room:', error);
+            socket.emit('error', { message: 'Failed to join room' });
         }
-        console.log(`User joined room: ${roomId}. Users in room: ${rooms[roomId]?.users.length}`);
     });
 
     socket.on('offer', (payload: any) => {
-        const roomId = payload?.room;
-        const room = rooms[roomId];
-        if (room) {
+        try {
+            const roomId = payload?.room;
+            const room = rooms[roomId];
+            if (!room) {
+                console.warn(`Offer received for non-existent room: ${roomId}`);
+                return;
+            }
+
             const otherUser = room.users.find(u => u.id !== socket.id);
             if (otherUser) {
                 otherUser.emit("offer", { sdp: payload.sdp });
+            } else {
+                console.warn(`No other user in room ${roomId} for offer from ${socket.id}`);
             }
+        } catch (error) {
+            console.error('Error in offer:', error);
         }
     });
 
     socket.on('answer', (payload: any) => {
-        const roomId = payload?.room;
-        const room = rooms[roomId];
-        if (room) {
+        try {
+            const roomId = payload?.room;
+            const room = rooms[roomId];
+            if (!room) {
+                console.warn(`Answer received for non-existent room: ${roomId}`);
+                return;
+            }
+
             const otherUser = room.users.find(u => u.id !== socket.id);
             if (otherUser) {
                 otherUser.emit("answer", { sdp: payload.sdp });
+            } else {
+                console.warn(`No other user in room ${roomId} for answer from ${socket.id}`);
             }
+        } catch (error) {
+            console.error('Error in answer:', error);
         }
     });
 
@@ -108,40 +151,66 @@ io.on('connection', (socket: Socket) => {
     });
 
     socket.on('stop-recording', () => {
-        const roomId = socket.data.room;
-        if (roomId && rooms[roomId]) {
-            const otherUser = rooms[roomId].users.find(u => u.id !== socket.id);
-            if (otherUser) otherUser.emit("recording-stopped");
+        try {
+            const roomId = socket.data.room;
+            if (roomId && rooms[roomId]) {
+                const otherUser = rooms[roomId].users.find(u => u.id !== socket.id);
+                if (otherUser) otherUser.emit("recording-stopped");
+            }
+        } catch (error) {
+            console.error('Error in stop-recording:', error);
         }
     });
 
     socket.on('ice-candidate', (payload: any) => {
-        const roomId = payload?.room;
-        const room = rooms[roomId];
-        if (room) {
+        try {
+            const roomId = payload?.room;
+            const room = rooms[roomId];
+            if (!room) {
+                console.warn(`ICE candidate received for non-existent room: ${roomId}`);
+                return;
+            }
+
             const otherUser = room.users.find(u => u.id !== socket.id);
             if (otherUser) {
                 otherUser.emit("ice-candidate", { candidate: payload.candidate });
+            } else {
+                console.warn(`No other user in room ${roomId} for ICE candidate from ${socket.id}`);
             }
+        } catch (error) {
+            console.error('Error in ice-candidate:', error);
         }
     });
 
-    socket.on('disconnect', () => {
-        const roomId = socket.data.room;
-        if (roomId) {
-            const room = rooms[roomId];
-            if (room) {
-                const otherUser = room.users.find(u => u.id !== socket.id);
-                if (otherUser) {
-                    otherUser.emit("peer-disconnected");
-                }
+    socket.on('disconnect', (reason) => {
+        try {
+            console.log(`Socket disconnected: ${socket.id}, reason: ${reason}`);
+            const roomId = socket.data.room;
+            if (roomId && rooms[roomId]) {
+                const room = rooms[roomId];
+                // Remove socket from room
                 room.users = room.users.filter(u => u.id !== socket.id);
+
+                // Notify other user if any
+                if (room.users.length === 1) {
+                    const remainingUser = room.users[0];
+                    remainingUser?.emit("peer-disconnected");
+                }
+
+                // Clean up empty room
                 if (room.users.length === 0) {
                     delete rooms[roomId];
+                    console.log(`Room ${roomId} removed (no users left)`);
                 }
-                console.log(`User disconnected from room: ${roomId}`);
             }
+        } catch (error) {
+            console.error('Error in disconnect handler:', error);
         }
+    });
+
+    // Handle socket errors
+    socket.on('error', (error) => {
+        console.error(`Socket error for ${socket.id}:`, error);
     });
 });
 
